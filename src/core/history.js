@@ -108,7 +108,8 @@ async function multicall(provider, calls, { chunk = 250, timeout = 20000 } = {})
  * @param {string[]} [opts.extraTokens] tokens seen elsewhere (wallet balances, known positions)
  * @returns {Promise<Array<{tokenId: string, poolAddress: string, gaugeAddress: string}>>}
  */
-export async function getStakedTokenIds(wallet, { extraTokens = [] } = {}) {
+export async function getStakedTokenIds(wallet, { extraTokens = [], diag = null } = {}) {
+  const trace = (step, value) => { if (diag) diag.steps.push({ step, value }); };
   const factoryAddr = FACTORY_ADDRS['aerodrome']?.[CHAIN];
   const voterAddr   = VOTER_ADDRS['aerodrome']?.[CHAIN];
   if (!factoryAddr || !voterAddr) return [];
@@ -134,6 +135,7 @@ export async function getStakedTokenIds(wallet, { extraTokens = [] } = {}) {
       });
     }
   }
+  trace('poolLookups', poolCalls.length);
   const poolResults = await multicall(provider, poolCalls);
   const pools = [...new Set(poolResults.map((r) => {
     if (!r.success) return null;
@@ -143,6 +145,7 @@ export async function getStakedTokenIds(wallet, { extraTokens = [] } = {}) {
     } catch (_) { return null; }
   }).filter(Boolean))];
 
+  trace('poolsFound', pools.length);
   if (pools.length === 0) return [];
 
   // 2. pool -> gauge
@@ -163,6 +166,7 @@ export async function getStakedTokenIds(wallet, { extraTokens = [] } = {}) {
     } catch (_) { /* not a gauge */ }
   });
 
+  trace('gaugesFound', gauges.map((g) => g.gauge));
   if (gauges.length === 0) return [];
 
   // 3. gauge.stakedValues(wallet). Kept as individual calls: stakedValues returns a
@@ -182,9 +186,9 @@ export async function getStakedTokenIds(wallet, { extraTokens = [] } = {}) {
     50
   );
 
-  return staked
-    .filter((r) => r.status === 'fulfilled')
-    .flatMap((r) => r.value);
+  const found = staked.filter((r) => r.status === 'fulfilled').flatMap((r) => r.value);
+  trace('stakedValuesHits', found.length);
+  return found;
 }
 
 /**

@@ -29,13 +29,15 @@ export async function GET(req: Request, { params }: { params: Promise<{ address:
     return NextResponse.json({ error: 'Too many requests. Try again in a minute.' }, { status: 429 });
   }
 
+  const debug = new URL(req.url).searchParams.get('debug') === '1';
+
   const hit = cache.get(address);
-  if (hit && Date.now() - hit.at < CACHE_TTL_MS) {
+  if (!debug && hit && Date.now() - hit.at < CACHE_TTL_MS) {
     return NextResponse.json(hit.data, { headers: { 'x-defier-cache': 'hit' } });
   }
 
   try {
-    const portfolio: Portfolio = await buildPortfolio(address);
+    const portfolio: Portfolio = await buildPortfolio(address, { diagnostics: debug });
     cache.set(address, { at: Date.now(), data: portfolio });
     return NextResponse.json(portfolio, { headers: { 'x-defier-cache': 'miss' } });
   } catch (err) {

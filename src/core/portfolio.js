@@ -89,22 +89,28 @@ function toLpPosition(p, extra = {}) {
  * @param {string} address lowercase 0x address on Base
  * @returns {Promise<import('../types/portfolio').Portfolio>}
  */
-export async function buildPortfolio(address) {
+export async function buildPortfolio(address, { diagnostics = false } = {}) {
   const wallet = address.toLowerCase();
+  /** Only populated when the caller asks. Counts, never secrets. */
+  const diag = diagnostics ? { steps: [] } : null;
+  const trace = (step, value) => { if (diag) diag.steps.push({ step, value }); };
   const warnings = [...PENDING];
   const provider = await getProvider(CHAIN);
 
   // 1. Positions the wallet holds directly.
   const held = await scanWalletPositions(wallet, { chains: [CHAIN] });
   const seen = new Set(held.map((p) => String(p.tokenId)));
+  trace('heldTokenIds', [...seen]);
 
   // 2. Positions staked in an Aerodrome gauge. The tokens of the held positions
   //    widen the search: someone with WETH/NVDAc in hand likely staked a sibling.
   const extraTokens = held.flatMap((p) => [p.token0?.address, p.token1?.address]).filter(Boolean);
   let stakedRefs = [];
   try {
-    stakedRefs = await getStakedTokenIds(wallet, { extraTokens });
-  } catch (_) {
+    stakedRefs = await getStakedTokenIds(wallet, { extraTokens, diag });
+    trace('stakedRefs', stakedRefs);
+  } catch (err) {
+    trace('stakedSearchError', String(err?.message || err));
     warnings.push('The staked position search failed, so gauge positions may be missing.');
   }
 
@@ -130,6 +136,7 @@ export async function buildPortfolio(address) {
   let recovered = [];
   try {
     const everOwned = await getWalletTokenIdsFromLogs(wallet, 'aerodrome');
+    trace('everOwned', everOwned);
     const unknown = everOwned.filter((t) => !seen.has(t.tokenId));
     for (const item of unknown.slice(0, 25)) {
       seen.add(item.tokenId);
@@ -139,7 +146,8 @@ export async function buildPortfolio(address) {
           25000
         );
         if (enriched) recovered.push({ enriched, ref: { tokenId: item.tokenId, gaugeAddress: null }, owner: item.currentOwner });
-      } catch (_) { /* skip */ }
+        else trace('enrichReturnedNull', item.tokenId);
+      } catch (err) { trace('enrichThrew', { tokenId: item.tokenId, error: String(err?.message || err) }); }
     }
   } catch (_) {
     warnings.push('The completeness pass over transfer logs did not run, so an unusual pool could be missing.');
@@ -225,5 +233,6 @@ export async function buildPortfolio(address) {
     lending,
     exposure,
     warnings,
+    ...(diag ? { diagnostics: diag } : {}),
   };
 }
