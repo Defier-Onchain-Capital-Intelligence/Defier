@@ -135,19 +135,39 @@ export async function buildPortfolio(address, { diagnostics = false } = {}) {
   // 3. Completeness pass. Anything this wallet ever owned that neither pass found.
   let recovered = [];
   try {
-    const everOwned = await getWalletTokenIdsFromLogs(wallet, 'aerodrome');
+    const [aeroOwned, uniOwned] = await Promise.all([
+      getWalletTokenIdsFromLogs(wallet, 'aerodrome'),
+      getWalletTokenIdsFromLogs(wallet, 'uniswap-v3'),
+    ]);
+    const everOwned = [
+      ...aeroOwned.map((t) => ({ ...t, protocol: 'aerodrome' })),
+      ...uniOwned.map((t) => ({ ...t, protocol: 'uniswap-v3' })),
+    ];
     trace('everOwned', everOwned);
     const unknown = everOwned.filter((t) => !seen.has(t.tokenId));
     for (const item of unknown.slice(0, 25)) {
       seen.add(item.tokenId);
+      const proto = item.protocol || 'aerodrome';
+      const protoNfpm = NFPM_ADDRS[proto]?.[CHAIN];
+      const protoFactory = FACTORY_ADDRS[proto]?.[CHAIN];
       try {
         const enriched = await withTimeout(
-          _enrichPosition(CHAIN, 'aerodrome', nfpmAddr, factoryAddr, item.tokenId, provider, true, wallet),
+          _enrichPosition(CHAIN, proto, protoNfpm, protoFactory, item.tokenId, provider, proto === 'aerodrome', wallet),
           25000
         );
         if (enriched) recovered.push({ enriched, ref: { tokenId: item.tokenId, gaugeAddress: null }, owner: item.currentOwner });
         else trace('enrichReturnedNull', item.tokenId);
-      } catch (err) { trace('enrichThrew', { tokenId: item.tokenId, error: String(err?.message || err) }); }
+      } catch (err) {
+        const message = String(err?.message || err);
+        // positions() reverting with "ID" means the NFT was burned: the position was
+        // closed and destroyed. That is a fact about the wallet, not a failure.
+        if (message.includes('"ID"')) {
+          warnings.push(`Position ${item.tokenId} was closed and burned, so its final state cannot be read onchain.`);
+          trace('burnedTokenId', item.tokenId);
+        } else {
+          trace('enrichThrew', { tokenId: item.tokenId, error: message });
+        }
+      }
     }
   } catch (_) {
     warnings.push('The completeness pass over transfer logs did not run, so an unusual pool could be missing.');

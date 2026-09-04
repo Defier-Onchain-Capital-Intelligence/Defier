@@ -77,7 +77,10 @@ export const VOTER_GAUGES_ABI = [
   'function gauges(address) view returns (address)',
   'function isGauge(address) view returns (bool)',
 ];
-export const CL_TICK_SPACINGS = [1, 50, 100, 200, 2000];
+// Aerodrome Slipstream tick spacings. The first five are the ones the HTML tool
+// probed; the rest were added because a pool on a spacing we never ask about is
+// a pool we will swear does not exist. Cheap to add: these are Multicall3 batched.
+export const CL_TICK_SPACINGS = [1, 10, 50, 100, 200, 500, 2000];
 
 // ─── NFPM event topics (same for Uniswap V3 and Aerodrome Slipstream; VERIFY on Aerodrome) ─
 export const NFPM_EVENTS = {
