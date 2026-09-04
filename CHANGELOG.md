@@ -10,3 +10,5 @@ One line per day of what shipped.
 - Portfolio orchestrator returning the typed contract, with everything not yet implemented declared rather than faked.
 - Exposure engine: per asset and per asset class decomposition of LPs, tokens and lending.
 - `GET /api/portfolio/[address]`: address validation, rate limiting, five minute cache, no stack traces on error.
+- Agent model set to Haiku 4.5 and Supabase variables renamed to the current publishable/secret key format.
+- First deploy on Vercel.

@@ -2,6 +2,8 @@
 
 **Onchain capital intelligence on Base.**
 
+Live: https://defier-alpha.vercel.app
+
 Dashboards show you data. DeFier tells you the answer: what your capital is actually
 earning, and whether providing liquidity beat simply holding the tokens.
 
