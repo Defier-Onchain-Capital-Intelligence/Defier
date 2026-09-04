@@ -9,7 +9,7 @@
  */
 
 import { ethers } from 'ethers';
-import { CHAIN_RPCS_LIST } from './constants.js';
+import { CHAIN_RPCS_LIST, ALCHEMY_KEY, HAS_ALCHEMY } from './constants.js';
 
 // ─── Utilities ─────────────────────────────────────────────────────────────────
 export function withTimeout(promise, ms) {
@@ -130,7 +130,13 @@ export async function getLogsProvider(chain) {
     ],
   };
 
-  const urls = LOGS_URLS[chain] || [];
+  // Alchemy first when we have a key. The public nodes below cap eth_getLogs at a
+  // few thousand blocks, which turns a scan across a position's lifetime into
+  // hundreds of requests. This comment used to claim the opposite; it was wrong.
+  const urls = [
+    ...(HAS_ALCHEMY && chain === 'base' ? [`https://base-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`] : []),
+    ...(LOGS_URLS[chain] || []),
+  ];
 
   const results = await Promise.allSettled(
     urls.map(async (url) => {

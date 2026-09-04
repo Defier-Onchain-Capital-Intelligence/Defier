@@ -66,6 +66,7 @@ function toLpPosition(p, extra = {}) {
     inRange: p.inRange,
     staked: extra.staked || false,
     gaugeAddress: extra.gaugeAddress,
+    nfpmAddress: extra.nfpmAddress,
     closed,
     liquidity: p.liquidity,
     currentAmounts: closed ? null : p.currentAmounts,
@@ -89,7 +90,7 @@ function toLpPosition(p, extra = {}) {
  * @param {string} address lowercase 0x address on Base
  * @returns {Promise<import('../types/portfolio').Portfolio>}
  */
-export async function buildPortfolio(address, { diagnostics = false } = {}) {
+export async function buildPortfolio(address, { diagnostics = false, deep = false } = {}) {
   const wallet = address.toLowerCase();
   /** Only populated when the caller asks. Counts, never secrets. */
   const diag = diagnostics ? { steps: [] } : null;
@@ -195,16 +196,25 @@ export async function buildPortfolio(address, { diagnostics = false } = {}) {
   ];
 
   const results = await batchedRequests(candidates, async ({ p, staked, gaugeAddress, nfpm }) => {
-    let history = { events: [], openedAt: null, closed: false, confidence: 'partial',
-                    notes: ['Event history could not be reconstructed.'] };
-    try {
-      history = await getPositionHistory({
-        protocol: p.protocol, tokenId: p.tokenId, nfpmAddr: nfpm,
-        gaugeAddress, wallet,
-        token0: { address: p.token0.address, decimals: p.token0.decimals },
-        token1: { address: p.token1.address, decimals: p.token1.decimals },
-      });
-    } catch (_) { /* keep the degraded default */ }
+    // Reconstructing a position's lifetime is many log scans across millions of
+    // blocks. The portfolio view answers "what do I hold and what is it worth",
+    // which needs none of that, so history is opt in here and always on in the
+    // position detail endpoint. Doing it for every position on every page load
+    // is what made this request time out.
+    let history = {
+      events: [], openedAt: null, closed: false, confidence: 'partial',
+      notes: ['Entry data and event history are loaded on the position detail view.'],
+    };
+    if (deep) {
+      try {
+        history = await getPositionHistory({
+          protocol: p.protocol, tokenId: p.tokenId, nfpmAddr: nfpm,
+          gaugeAddress, wallet,
+          token0: { address: p.token0.address, decimals: p.token0.decimals },
+          token1: { address: p.token1.address, decimals: p.token1.decimals },
+        });
+      } catch (_) { /* keep the degraded default */ }
+    }
 
     let incentivesPending = null;
     if (staked && gaugeAddress) {
@@ -214,7 +224,7 @@ export async function buildPortfolio(address, { diagnostics = false } = {}) {
     }
 
     return toLpPosition(p, {
-      staked, gaugeAddress, incentivesPending,
+      staked, gaugeAddress, nfpmAddress: nfpm, incentivesPending,
       events: history.events,
       openedAt: history.openedAt,
       closed: history.closed || !p.liquidity || p.liquidity === '0',

@@ -29,16 +29,20 @@ export async function GET(req: Request, { params }: { params: Promise<{ address:
     return NextResponse.json({ error: 'Too many requests. Try again in a minute.' }, { status: 429 });
   }
 
-  const debug = new URL(req.url).searchParams.get('debug') === '1';
+  const search = new URL(req.url).searchParams;
+  const debug = search.get('debug') === '1';
+  // Full event history for every position at once. Slow by nature, so it is never
+  // the default: the UI loads a position's history when that position is opened.
+  const deep = search.get('deep') === '1';
 
   const hit = cache.get(address);
-  if (!debug && hit && Date.now() - hit.at < CACHE_TTL_MS) {
+  if (!debug && !deep && hit && Date.now() - hit.at < CACHE_TTL_MS) {
     return NextResponse.json(hit.data, { headers: { 'x-defier-cache': 'hit' } });
   }
 
   try {
-    const portfolio: Portfolio = await buildPortfolio(address, { diagnostics: debug });
-    cache.set(address, { at: Date.now(), data: portfolio });
+    const portfolio: Portfolio = await buildPortfolio(address, { diagnostics: debug, deep });
+    if (!deep) cache.set(address, { at: Date.now(), data: portfolio });
     return NextResponse.json(portfolio, { headers: { 'x-defier-cache': 'miss' } });
   } catch (err) {
     // Never leak a stack trace to the client. See SECURITY.md section 4.

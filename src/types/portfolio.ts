@@ -78,6 +78,8 @@ export interface LpPosition {
   inRange: boolean;
   staked: boolean;              // NFT held by Aerodrome gauge
   gaugeAddress?: string;
+  /** Position manager holding this NFT. Base has more than one Slipstream deployment. */
+  nfpmAddress?: string;
   closed: boolean;              // liquidity == 0
   liquidity: string;
   currentAmounts: { token0: number; token1: number } | null;
