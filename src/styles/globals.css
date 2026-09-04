@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Design tokens live in tailwind.config.ts. Keep this file small. */
+@layer base {
+  html { @apply bg-bg-base text-ink-primary antialiased; }
+  body { @apply min-h-screen; }
+}
+
+@layer components {
+  .card      { @apply bg-bg-surface border border-bg-border rounded-xl2 shadow-card p-5; }
+  .kpi       { @apply text-kpi tabular-nums; }
+  .hero-num  { @apply text-hero tabular-nums; }
+  .pill      { @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium; }
+  .pill-gain { @apply pill bg-gain-soft text-gain; }
+  .pill-loss { @apply pill bg-loss-soft text-loss; }
+  .pill-warn { @apply pill bg-warn-soft text-warn; }
+  .btn       { @apply inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition; }
+  .btn-primary { @apply btn bg-accent text-white hover:bg-accent-dim; }
+  .btn-ghost   { @apply btn border border-bg-border bg-bg-surface hover:bg-bg-elevated; }
+  .muted     { @apply text-ink-muted text-sm; }
+}
