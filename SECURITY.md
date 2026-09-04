@@ -7,9 +7,9 @@ Este repo será público desde el día 1. Estas reglas se aplican antes del prim
 |----------|-----------|----------|-------|
 | `ALCHEMY_KEY` | Vercel env (Production/Preview) + `.env.local` | NUNCA | Crear app Alchemy nueva SOLO para servidor. Sin `NEXT_PUBLIC_`. Activar en Alchemy: límite de CU/día y alertas de uso |
 | `ANTHROPIC_API_KEY` | Vercel env + `.env.local` | NUNCA | Solo se usa en `app/api/ask/route.ts`. Poner spend limit en la consola de Anthropic |
-| `SUPABASE_SERVICE_ROLE_KEY` | Vercel env + `.env.local` | NUNCA | Bypassa RLS. Solo server |
+| `SUPABASE_SECRET_KEY` | Vercel env + `.env.local` | NUNCA | Formato nuevo `sb_secret_...`. Bypassa RLS. Solo server |
 | `NEXT_PUBLIC_ONCHAINKIT_API_KEY` | Vercel env + `.env.local` | Sí (por diseño) | Es pública por diseño; en el portal CDP restringir a los dominios permitidos |
-| `NEXT_PUBLIC_SUPABASE_URL` / `ANON_KEY` | Vercel env | Sí (por diseño) | Seguras solo si RLS está activo en TODAS las tablas |
+| `NEXT_PUBLIC_SUPABASE_URL` / `PUBLISHABLE_KEY` | Vercel env | Sí (por diseño) | Formato nuevo `sb_publishable_...`. Seguras solo si RLS está activo en TODAS las tablas |
 | `NEXT_PUBLIC_DEMO_WALLET` | Vercel env | Sí | No es secreto |
 
 Regla: si una variable empieza por `NEXT_PUBLIC_`, asume que está impresa en la home. Nada de pago va con ese prefijo.

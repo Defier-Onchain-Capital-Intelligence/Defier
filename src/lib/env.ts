@@ -39,9 +39,9 @@ export function getAnthropicModel(): string {
   return optionalEnv('ANTHROPIC_MODEL', 'claude-sonnet-4-5');
 }
 
-/** Supabase service role. Bypasses RLS, server only. */
-export function getSupabaseServiceKey(): string {
-  return requireEnv('SUPABASE_SERVICE_ROLE_KEY');
+/** Supabase secret key. Bypasses Row Level Security, so server only. */
+export function getSupabaseSecretKey(): string {
+  return requireEnv('SUPABASE_SECRET_KEY');
 }
 
 // ─── Public by design. Assume these are printed on the home page. ─────────────
@@ -49,5 +49,5 @@ export function getSupabaseServiceKey(): string {
 export const ONCHAINKIT_API_KEY = process.env.NEXT_PUBLIC_ONCHAINKIT_API_KEY || '';
 export const APP_URL            = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 export const SUPABASE_URL       = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-export const SUPABASE_ANON      = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+export const SUPABASE_PUBLISHABLE = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || '';
 export const DEMO_WALLET        = process.env.NEXT_PUBLIC_DEMO_WALLET || '';
