@@ -12,3 +12,4 @@ One line per day of what shipped.
 - `GET /api/portfolio/[address]`: address validation, rate limiting, five minute cache, no stack traces on error.
 - Agent model set to Haiku 4.5 and Supabase variables renamed to the current publishable/secret key format.
 - First deploy on Vercel.
+- Part 1: staked gauge positions, full event history, historical prices, gas, closed positions.

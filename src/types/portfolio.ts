@@ -88,6 +88,10 @@ export interface LpPosition {
   openedAt: number | null;      // unix seconds of mint
   events: PositionEvent[];
   pnl: PositionPnl | null;
+  /** Reconstruction quality of THIS position, independent of the P&L block.
+   *  Rule 5 of the handoff: if something could not be resolved, the product says so. */
+  confidence: Confidence;
+  notes: string[];
 }
 
 export interface TokenHolding {
