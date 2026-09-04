@@ -35,7 +35,7 @@ import {
 } from './constants.js';
 import {
   BASE_TOKENS, TOKENIZED_STOCKS, CL_GAUGE_ABI, CL_TICK_SPACINGS,
-  NFPM_EVENTS, GAUGE_EVENTS, BASE_BLOCKS_PER_DAY,
+  NFPM_EVENTS, GAUGE_EVENTS, BASE_BLOCKS_PER_DAY, AERODROME_CL_DEPLOYMENTS,
 } from './constants.base.js';
 import { getProvider, getLogsProvider, chunkedGetLogs, withTimeout, batchedRequests } from './providers.js';
 import { fetchHistoricalPricesBatch } from './prices.js';
@@ -110,9 +110,8 @@ async function multicall(provider, calls, { chunk = 250, timeout = 20000 } = {})
  */
 export async function getStakedTokenIds(wallet, { extraTokens = [], diag = null } = {}) {
   const trace = (step, value) => { if (diag) diag.steps.push({ step, value }); };
-  const factoryAddr = FACTORY_ADDRS['aerodrome']?.[CHAIN];
-  const voterAddr   = VOTER_ADDRS['aerodrome']?.[CHAIN];
-  if (!factoryAddr || !voterAddr) return [];
+  const voterAddr = VOTER_ADDRS['aerodrome']?.[CHAIN];
+  if (!voterAddr) return [];
 
   const provider = await getProvider(CHAIN);
 
@@ -123,27 +122,38 @@ export async function getStakedTokenIds(wallet, { extraTokens = [], diag = null 
   const stocks = Object.values(TOKENIZED_STOCKS).map((s) => s.address);
   const pairs = buildPairs(core, stocks);
 
-  // 1. pool addresses, one multicall per 250 lookups
+  // 1. Pool addresses, across EVERY known Slipstream deployment. Asking only the
+  //    original factory is what hid the tokenized stock pools.
   const factoryIface = new ethers.utils.Interface(FACTORY_ABI_AERO);
   const poolCalls = [];
-  for (const [a, b] of pairs) {
-    for (const spacing of CL_TICK_SPACINGS) {
-      poolCalls.push({
-        target: factoryAddr,
-        allowFailure: true,
-        callData: factoryIface.encodeFunctionData('getPool', [a, b, spacing]),
-      });
+  for (const deployment of AERODROME_CL_DEPLOYMENTS) {
+    for (const [a, b] of pairs) {
+      for (const spacing of CL_TICK_SPACINGS) {
+        poolCalls.push({
+          target: deployment.factory,
+          allowFailure: true,
+          callData: factoryIface.encodeFunctionData('getPool', [a, b, spacing]),
+          _deployment: deployment,
+        });
+      }
     }
   }
   trace('poolLookups', poolCalls.length);
-  const poolResults = await multicall(provider, poolCalls);
-  const pools = [...new Set(poolResults.map((r) => {
-    if (!r.success) return null;
+  const poolResults = await multicall(
+    provider,
+    poolCalls.map(({ target, allowFailure, callData }) => ({ target, allowFailure, callData }))
+  );
+
+  /** @type {Map<string, {factory: string, nfpm: string, name: string}>} */
+  const deploymentOfPool = new Map();
+  poolResults.forEach((r, i) => {
+    if (!r.success) return;
     try {
       const [addr] = factoryIface.decodeFunctionResult('getPool', r.returnData);
-      return addr && addr !== ZERO_ADDR ? addr.toLowerCase() : null;
-    } catch (_) { return null; }
-  }).filter(Boolean))];
+      if (addr && addr !== ZERO_ADDR) deploymentOfPool.set(addr.toLowerCase(), poolCalls[i]._deployment);
+    } catch (_) { /* not a pool */ }
+  });
+  const pools = [...deploymentOfPool.keys()];
 
   trace('poolsFound', pools.length);
   if (pools.length === 0) return [];
@@ -156,13 +166,15 @@ export async function getStakedTokenIds(wallet, { extraTokens = [], diag = null 
     callData: voterIface.encodeFunctionData('gauges', [pool]),
   })));
 
-  /** @type {Array<{pool: string, gauge: string}>} */
+  /** @type {Array<{pool: string, gauge: string, deployment: object}>} */
   const gauges = [];
   gaugeResults.forEach((r, i) => {
     if (!r.success) return;
     try {
       const [addr] = voterIface.decodeFunctionResult('gauges', r.returnData);
-      if (addr && addr !== ZERO_ADDR) gauges.push({ pool: pools[i], gauge: addr.toLowerCase() });
+      if (addr && addr !== ZERO_ADDR) {
+        gauges.push({ pool: pools[i], gauge: addr.toLowerCase(), deployment: deploymentOfPool.get(pools[i]) });
+      }
     } catch (_) { /* not a gauge */ }
   });
 
@@ -173,13 +185,24 @@ export async function getStakedTokenIds(wallet, { extraTokens = [], diag = null 
   //    dynamic array, and decoding those through aggregate3 is where this breaks quietly.
   const staked = await batchedRequests(
     gauges,
-    async ({ pool, gauge }) => {
+    async ({ pool, gauge, deployment }) => {
       const gc = new ethers.Contract(gauge, CL_GAUGE_ABI, provider);
       const ids = await withTimeout(gc.stakedValues(wallet), 6000).catch(() => []);
-      return (Array.isArray(ids) ? ids : []).map((id) => ({
+      if (!Array.isArray(ids) || ids.length === 0) return [];
+
+      // Ask the gauge which position manager holds its NFTs instead of assuming.
+      // Deployments differ, and an assumption here reads the wrong contract and
+      // reverts with "ID", which looks like "the position does not exist".
+      const nfpmFromGauge = await withTimeout(gc.nft(), 6000)
+        .then((a) => a.toLowerCase())
+        .catch(() => null);
+
+      return ids.map((id) => ({
         tokenId: id.toString(),
         poolAddress: pool,
         gaugeAddress: gauge,
+        nfpmAddress: nfpmFromGauge || deployment?.nfpm || null,
+        factoryAddress: deployment?.factory || null,
       }));
     },
     20,
@@ -200,8 +223,8 @@ export async function getStakedTokenIds(wallet, { extraTokens = [], diag = null 
  *
  * @returns {Promise<Array<{tokenId: string, currentOwner: string|null}>>}
  */
-export async function getWalletTokenIdsFromLogs(wallet, protocol = 'aerodrome') {
-  const nfpmAddr = NFPM_ADDRS[protocol]?.[CHAIN];
+export async function getWalletTokenIdsFromLogs(wallet, protocol = 'aerodrome', nfpmOverride = null) {
+  const nfpmAddr = nfpmOverride || NFPM_ADDRS[protocol]?.[CHAIN];
   if (!nfpmAddr) return [];
 
   const provider = await getProvider(CHAIN);
@@ -237,6 +260,7 @@ export async function getWalletTokenIdsFromLogs(wallet, protocol = 'aerodrome') 
     ids,
     async (id) => ({
       tokenId: id,
+      nfpmAddress: nfpmAddr.toLowerCase(),
       currentOwner: await withTimeout(nfpm.ownerOf(id), 6000).then((o) => o.toLowerCase()).catch(() => null),
     }),
     15,

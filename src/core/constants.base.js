@@ -66,9 +66,34 @@ export const CHAINLINK_FEED_ABI = [
 ];
 export const CHAINLINK_STALE_SECONDS = 26 * 3600; // heartbeat is 24h; freeze during corporate actions
 
+// ─── Aerodrome Slipstream deployments ─────────────────────────────────────────
+// There is more than one. The original CL deployment does not host the tokenized
+// stock pools: WETH/NVDAc (0x20e5fad2661ee9eb0c04824524030af31943b62d) answers to a
+// different factory and a different position manager, both verified onchain on
+// 4 sep 2026 by reading pool.factory() and gauge.nft().
+//
+// Assuming a single deployment is why a real staked position was invisible. Both
+// are probed, and the position manager for a staked tokenId is read from the gauge
+// itself rather than assumed.
+export const AERODROME_CL_DEPLOYMENTS = [
+  {
+    name: 'slipstream',
+    factory: '0x5e7bb104d84c7cb9b682aac2f3d509f5f406809a',
+    nfpm:    '0x827922686190790b37229fd06084350e74485b72',
+  },
+  {
+    name: 'slipstream-2',
+    factory: '0xf8f2eb4940cfe7d13603dddd87f123820fc061ef',
+    nfpm:    '0xe1f8cd9ac4e4a65f54f38a5cdafca44f6dd68b53',
+  },
+];
+
 // ─── Aerodrome CL gauge (ported from the HTML tool, lines ~1040 and ~3380) ─────
 export const CL_GAUGE_ABI = [
   'function stakedValues(address) view returns (uint256[])',
+  'function nft() view returns (address)',
+  'function pool() view returns (address)',
+  'function rewardToken() view returns (address)',
   'function stakedContains(address, uint256) view returns (bool)',
   'function earned(address account, uint256 tokenId) view returns (uint256)',
   'function rewardRate() view returns (uint256)',

@@ -14,7 +14,7 @@ import { scanWalletPositions, _enrichPosition } from './scanner.js';
 import { getStakedTokenIds, getWalletTokenIdsFromLogs, getPositionHistory, getPendingRewards } from './history.js';
 import { computeExposure, classify } from './exposure.js';
 import { tickToPrice } from './math.js';
-import { STOCK_ADDRESSES, BASE_TOKENS } from './constants.base.js';
+import { STOCK_ADDRESSES, BASE_TOKENS, AERODROME_CL_DEPLOYMENTS } from './constants.base.js';
 import { NFPM_ADDRS, FACTORY_ADDRS } from './constants.js';
 import { getProvider, batchedRequests, withTimeout } from './providers.js';
 import { fetchTokenPrice } from './prices.js';
@@ -114,8 +114,8 @@ export async function buildPortfolio(address, { diagnostics = false } = {}) {
     warnings.push('The staked position search failed, so gauge positions may be missing.');
   }
 
-  const nfpmAddr = NFPM_ADDRS['aerodrome']?.[CHAIN];
-  const factoryAddr = FACTORY_ADDRS['aerodrome']?.[CHAIN];
+  const defaultNfpm = NFPM_ADDRS['aerodrome']?.[CHAIN];
+  const defaultFactory = FACTORY_ADDRS['aerodrome']?.[CHAIN];
 
   const stakedEnriched = [];
   for (const ref of stakedRefs) {
@@ -123,11 +123,18 @@ export async function buildPortfolio(address, { diagnostics = false } = {}) {
     seen.add(ref.tokenId);
     try {
       const enriched = await withTimeout(
-        _enrichPosition(CHAIN, 'aerodrome', nfpmAddr, factoryAddr, ref.tokenId, provider, true, wallet),
+        _enrichPosition(
+          CHAIN, 'aerodrome',
+          ref.nfpmAddress || defaultNfpm,
+          ref.factoryAddress || defaultFactory,
+          ref.tokenId, provider, true, wallet
+        ),
         25000
       );
       if (enriched) stakedEnriched.push({ enriched, ref });
-    } catch (_) {
+      else trace('stakedEnrichNull', ref.tokenId);
+    } catch (err) {
+      trace('stakedEnrichThrew', { tokenId: ref.tokenId, error: String(err?.message || err).slice(0, 160) });
       warnings.push(`Staked position ${ref.tokenId} could not be read.`);
     }
   }
@@ -135,27 +142,29 @@ export async function buildPortfolio(address, { diagnostics = false } = {}) {
   // 3. Completeness pass. Anything this wallet ever owned that neither pass found.
   let recovered = [];
   try {
-    const [aeroOwned, uniOwned] = await Promise.all([
-      getWalletTokenIdsFromLogs(wallet, 'aerodrome'),
-      getWalletTokenIdsFromLogs(wallet, 'uniswap-v3'),
-    ]);
-    const everOwned = [
-      ...aeroOwned.map((t) => ({ ...t, protocol: 'aerodrome' })),
-      ...uniOwned.map((t) => ({ ...t, protocol: 'uniswap-v3' })),
-    ];
+    const sources = [
+      ...AERODROME_CL_DEPLOYMENTS.map((d) => ({ protocol: 'aerodrome', nfpm: d.nfpm, factory: d.factory })),
+      { protocol: 'uniswap-v3', nfpm: NFPM_ADDRS['uniswap-v3']?.[CHAIN], factory: FACTORY_ADDRS['uniswap-v3']?.[CHAIN] },
+    ].filter((sourceItem) => sourceItem.nfpm);
+
+    const perSource = await Promise.all(sources.map(async (sourceItem) => {
+      const owned = await getWalletTokenIdsFromLogs(wallet, sourceItem.protocol, sourceItem.nfpm);
+      return owned.map((t) => ({ ...t, protocol: sourceItem.protocol, nfpm: sourceItem.nfpm, factory: sourceItem.factory }));
+    }));
+    const everOwned = perSource.flat();
     trace('everOwned', everOwned);
     const unknown = everOwned.filter((t) => !seen.has(t.tokenId));
     for (const item of unknown.slice(0, 25)) {
       seen.add(item.tokenId);
       const proto = item.protocol || 'aerodrome';
-      const protoNfpm = NFPM_ADDRS[proto]?.[CHAIN];
-      const protoFactory = FACTORY_ADDRS[proto]?.[CHAIN];
+      const protoNfpm = item.nfpm || NFPM_ADDRS[proto]?.[CHAIN];
+      const protoFactory = item.factory || FACTORY_ADDRS[proto]?.[CHAIN];
       try {
         const enriched = await withTimeout(
           _enrichPosition(CHAIN, proto, protoNfpm, protoFactory, item.tokenId, provider, proto === 'aerodrome', wallet),
           25000
         );
-        if (enriched) recovered.push({ enriched, ref: { tokenId: item.tokenId, gaugeAddress: null }, owner: item.currentOwner });
+        if (enriched) recovered.push({ enriched, ref: { tokenId: item.tokenId, gaugeAddress: null, nfpmAddress: protoNfpm }, owner: item.currentOwner });
         else trace('enrichReturnedNull', item.tokenId);
       } catch (err) {
         const message = String(err?.message || err);
@@ -176,17 +185,21 @@ export async function buildPortfolio(address, { diagnostics = false } = {}) {
   // 4. Event history for every position found. Bounded concurrency: each one is
   //    several chunked log scans and this is the expensive part of the request.
   const candidates = [
-    ...held.map((p) => ({ p, staked: false, gaugeAddress: undefined })),
-    ...stakedEnriched.map(({ enriched, ref }) => ({ p: enriched, staked: true, gaugeAddress: ref.gaugeAddress })),
-    ...recovered.map(({ enriched, ref }) => ({ p: enriched, staked: false, gaugeAddress: ref.gaugeAddress || undefined })),
+    ...held.map((p) => ({ p, staked: false, gaugeAddress: undefined, nfpm: defaultNfpm })),
+    ...stakedEnriched.map(({ enriched, ref }) => ({
+      p: enriched, staked: true, gaugeAddress: ref.gaugeAddress, nfpm: ref.nfpmAddress || defaultNfpm,
+    })),
+    ...recovered.map(({ enriched, ref }) => ({
+      p: enriched, staked: false, gaugeAddress: ref.gaugeAddress || undefined, nfpm: ref.nfpmAddress || defaultNfpm,
+    })),
   ];
 
-  const results = await batchedRequests(candidates, async ({ p, staked, gaugeAddress }) => {
+  const results = await batchedRequests(candidates, async ({ p, staked, gaugeAddress, nfpm }) => {
     let history = { events: [], openedAt: null, closed: false, confidence: 'partial',
                     notes: ['Event history could not be reconstructed.'] };
     try {
       history = await getPositionHistory({
-        protocol: p.protocol, tokenId: p.tokenId, nfpmAddr,
+        protocol: p.protocol, tokenId: p.tokenId, nfpmAddr: nfpm,
         gaugeAddress, wallet,
         token0: { address: p.token0.address, decimals: p.token0.decimals },
         token1: { address: p.token1.address, decimals: p.token1.decimals },
