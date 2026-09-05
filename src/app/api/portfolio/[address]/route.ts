@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import type { Portfolio } from '@/types/portfolio';
+import { after } from 'next/server';
 import { rateLimit } from '@/lib/rateLimit';
+import { recordWalletSnapshot } from '@/lib/capital';
 // core/ is plain JS and server side only. TypeScript reads it through allowJs.
 import { buildPortfolio } from '@/core/portfolio.js';
 
@@ -76,7 +78,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ address:
   try {
     const portfolio: Portfolio = await buildPortfolio(address, { diagnostics: debug, deep });
     if (!deep) cache.set(address, { at: Date.now(), data: portfolio });
-    return NextResponse.json(portfolio, { headers: { 'x-defier-cache': 'miss' } });
+
+    // Recorded after the response is sent, so the traction metric never costs
+    // the user a millisecond of wait.
+    after(() => recordWalletSnapshot(portfolio));
+
+    return NextResponse.json(shape(portfolio, compact), { headers: { 'x-defier-cache': 'miss' } });
   } catch (err) {
     // Never leak a stack trace to the client. See SECURITY.md section 4.
     console.error('[portfolio] scan failed', { address, err });
