@@ -56,7 +56,7 @@ export function PoolDetailView({ id }: { id: string }) {
       </header>
 
       <Card>
-        <Label>What it has actually paid</Label>
+        <Label>What the average dollar has earned here</Label>
         <div className="mt-3 grid grid-cols-2 gap-4">
           <Stat
             label="Fee APR, 7 day average"
@@ -72,9 +72,10 @@ export function PoolDetailView({ id }: { id: string }) {
           />
         </div>
         <p className="mt-3 rounded-xl bg-bg-elevated p-3 text-[0.6875rem] leading-relaxed text-ink-secondary">
-          These are full range figures: all the fees over all the liquidity. That is the floor,
-          and it is the only number that compares two pools fairly. A concentrated range earns a
-          multiple of it, which the calculator below works out for this pool.
+          All the fees divided by all the value in the pool, averaged day by day and weighted by
+          the size the pool actually was on each of them. It is the fair way to compare two pools,
+          and it is an average over every position in this one: tight ranges earn more than it,
+          wide ranges much less. What your range would earn is the calculator below.
         </p>
       </Card>
 
@@ -93,7 +94,11 @@ export function PoolDetailView({ id }: { id: string }) {
             label="Published APY"
             value={pool.published.apyPct != null ? pct(pool.published.apyPct) : '—'}
             sub="what other interfaces show"
-            info="One day of trading, annualised, plus emissions. It moves every day and it is the number that sends people into pools that have averaged a fraction of it."
+            info={`One day of trading, annualised, plus emissions. It moves every day.${
+              pool.published.apyMean30dPct != null
+                ? ` This pool's published 30 day average is ${pool.published.apyMean30dPct.toFixed(0)}%, which is a plain mean of daily APY and is why we do not use it.`
+                : ''
+            }`}
           />
         </div>
       </Card>
