@@ -26,10 +26,32 @@ import { fetchPoolTicks, buildHistogramBuckets } from './ticks.js';
 import { getTickSpacing, getPoolFeeDec, getRangePresets, classifyRisk, detectPoolType } from './pools.js';
 import { tickToPrice, computeLPerDollar } from './math.js';
 
+/**
+ * Range presets scaled to the pool's own granularity.
+ *
+ * The generic risk based presets offered a CL10 pool ±10%, ±20%, ±40% and Full,
+ * every one of which is far wider than anything anyone runs there: one tick is
+ * 0.1%, and the positions competing for those fees sit within a fraction of a
+ * percent of the price. Presets nobody would pick are presets nobody uses.
+ */
+function presetsFor(tickSpacing, fallback) {
+  if (!tickSpacing) return fallback;
+  const tick = Math.pow(1.0001, tickSpacing) - 1;      // one tick spacing, as a fraction
+  const widths = [5, 20, 50, 200].map((n) => n * tick);
+  const label = (w) => `±${w < 0.01 ? (w * 100).toFixed(2) : (w * 100).toFixed(w < 0.1 ? 1 : 0)}%`;
+  const out = [];
+  for (const w of widths) {
+    if (w > 0.9) break;
+    out.push({ label: label(w), pctLow: w, pctHigh: w });
+  }
+  out.push({ label: 'Full', pctLow: 0.999, pctHigh: 0.999 });
+  return out.length > 2 ? out : fallback;
+}
+
 /** Widths the slider can land on, as a fraction either side of the current price. */
 const GRID = [
-  0.0025, 0.005, 0.0075, 0.01, 0.015, 0.02, 0.03, 0.04, 0.05, 0.075,
-  0.10, 0.15, 0.20, 0.30, 0.40, 0.50, 0.75, 0.999,
+  0.0005, 0.001, 0.002, 0.0035, 0.005, 0.0075, 0.01, 0.015, 0.02, 0.03, 0.04, 0.05,
+  0.075, 0.10, 0.15, 0.20, 0.30, 0.40, 0.50, 0.75, 0.999,
 ];
 
 /**
@@ -247,7 +269,7 @@ export async function buildPoolDetail(pool) {
     },
     fullRange,
     aprGrid: grid,
-    presets: getRangePresets(pool),
+    presets: presetsFor(tickSpacing, getRangePresets(pool)),
     histogram,
   };
 }

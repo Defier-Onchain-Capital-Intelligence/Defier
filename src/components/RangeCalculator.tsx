@@ -21,8 +21,10 @@ import { InfoDot } from '@/components/ui/InfoDot';
 
 export function RangeCalculator({ pool }: { pool: PoolDetail }) {
   const grid = pool.aprGrid || [];
-  // Open on something a person would actually pick, not the tightest row.
-  const initial = Math.max(grid.findIndex((g) => g.pctLow >= 0.05), 0);
+  // Open on the middle of what this pool's presets suggest, not on an arbitrary
+  // width: a CL1 pool and a CL2000 pool are read at completely different scales.
+  const suggested = pool.presets?.[1]?.pctLow ?? 0.05;
+  const initial = Math.max(grid.findIndex((g) => g.pctLow >= suggested), 0);
   const [i, setI] = useState(initial >= 0 ? initial : Math.floor(grid.length / 2));
 
   const point: AprPoint | undefined = grid[i];
