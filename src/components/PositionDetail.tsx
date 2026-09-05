@@ -37,7 +37,7 @@ export function PositionDetail({ id, wallet }: { id: string; wallet: string }) {
 
   return (
     <div className="space-y-4">
-      <BackLink href={`/positions?wallet=${wallet}`}>All positions</BackLink>
+      <BackLink href={`/pools?wallet=${wallet}&tab=mine`}>All positions</BackLink>
 
       <header>
         <h1 className="text-lg font-semibold">{pos.symbol}</h1>

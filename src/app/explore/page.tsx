@@ -1,7 +1,8 @@
-import { ExploreView } from '@/components/ExploreView';
+import { redirect } from 'next/navigation';
 
+/** Explore became Find pools inside the Pools screen. Old links keep working. */
 export const dynamic = 'force-dynamic';
 
 export default function ExplorePage() {
-  return <ExploreView />;
+  redirect('/pools?tab=find');
 }

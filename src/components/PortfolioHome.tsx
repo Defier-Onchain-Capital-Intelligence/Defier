@@ -67,7 +67,7 @@ export function PortfolioHome({ address }: { address: string }) {
       </Card>
 
       {summary.historyHeadline ? (
-        <Link href={`/positions?wallet=${address}&tab=closed`} className="block">
+        <Link href={`/pools?wallet=${address}&tab=mine`} className="block">
           <Card className="hover:bg-bg-elevated/40 transition-colors">
             <Label>History</Label>
             <p className="mt-1.5 text-sm text-ink-secondary leading-relaxed">{summary.historyHeadline}</p>
@@ -112,8 +112,8 @@ export function PortfolioHome({ address }: { address: string }) {
 
       <Card>
         <div className="flex items-baseline justify-between">
-          <Label>Open positions</Label>
-          <Link href={`/positions?wallet=${address}`} className="text-xs text-accent">See all</Link>
+          <Label>Your pools</Label>
+          <Link href={`/pools?wallet=${address}&tab=mine`} className="text-xs text-accent">See all</Link>
         </div>
         {open.length === 0 ? (
           <p className="muted mt-3">No open liquidity positions on Base.</p>

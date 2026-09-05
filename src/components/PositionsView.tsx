@@ -15,7 +15,8 @@ import { PositionRow } from '@/components/PositionRow';
 
 type Tab = 'open' | 'closed';
 
-export function PositionsView({ address, initialTab }: { address: string; initialTab: Tab }) {
+/** The list of a wallet's positions, hosted by the Pools screen. */
+export function PositionsList({ address, initialTab }: { address: string; initialTab: Tab }) {
   const [tab, setTab] = useState<Tab>(initialTab);
   const { data, error } = usePortfolio(address, { deep: true });
 
@@ -29,8 +30,6 @@ export function PositionsView({ address, initialTab }: { address: string; initia
 
   return (
     <div className="space-y-4">
-      <h1 className="text-lg font-semibold">Positions</h1>
-
       <div className="flex gap-1 rounded-xl bg-bg-surface border border-bg-border p-1">
         {([['open', `Open (${open.length})`], ['closed', `History (${closed.length})`]] as const).map(([key, label]) => (
           <button

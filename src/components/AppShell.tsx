@@ -10,9 +10,9 @@ import { usePathname, useSearchParams } from 'next/navigation';
 
 const NAV = [
   { href: '/',          label: 'Portfolio' },
-  { href: '/positions', label: 'Positions' },
   { href: '/holdings',  label: 'Holdings' },
-  { href: '/explore',   label: 'Explore' },
+  { href: '/pools',     label: 'Pools' },
+  { href: '/simulate',  label: 'Simulate' },
   { href: '/ask',       label: 'Ask' },
 ];
 

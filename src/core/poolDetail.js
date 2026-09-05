@@ -189,5 +189,6 @@ export async function buildPoolDetail(pool) {
     fullRange,
     aprGrid: grid,
     presets: getRangePresets(pool),
+    histogram,
   };
 }
