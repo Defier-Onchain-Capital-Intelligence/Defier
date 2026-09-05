@@ -14,6 +14,7 @@ import { usd, toneOf } from '@/lib/format';
 import { Card, Label, ExposureBar, Skeleton, ConfidenceNote, EmptyState } from '@/components/ui/Primitives';
 import { PositionRow } from '@/components/PositionRow';
 import { ScenarioCard } from '@/components/ScenarioCard';
+import { ObservationsCard } from '@/components/ObservationsCard';
 import { WalletBadge } from '@/components/WalletBadge';
 
 export function PortfolioHome({ address }: { address: string }) {
@@ -129,6 +130,8 @@ export function PortfolioHome({ address }: { address: string }) {
       ) : null}
 
       {data.scenarios ? <ScenarioCard scenarios={data.scenarios} /> : null}
+
+      <ObservationsCard observations={data.observations} address={address} />
 
       <Card>
         <div className="flex items-baseline justify-between">
