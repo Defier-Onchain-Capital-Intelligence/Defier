@@ -289,11 +289,22 @@ export interface Scenarios {
   perPosition: Array<{
     id: string; symbol: string;
     kind: 'crypto' | 'crypto-vs-stock';
+    /** What this position is a bet on. Never "the market". */
+    axis: 'crypto-vs-stocks' | 'crypto-vs-dollar' | 'asset-vs-asset';
+    axisLabel: string;
+    upMeans: string;
+    downMeans: string;
     upAsset: string; upAmount: number; upValueUsd: number;
     downAsset: string; downAmount: number; downValueUsd: number;
     explanation: string;
   }>;
   hasPositions: boolean;
+  axes: string[];
+  /** True when the positions are bets on different things and cannot share one story. */
+  mixedAxes: boolean;
+  upLabel: string | null;
+  downLabel: string | null;
+  caveat: string | null;
 }
 
 /** An observation about the portfolio, paired with what exists on Base for it. */

@@ -29,7 +29,7 @@ export function ScenarioCard({ scenarios }: { scenarios: Scenarios }) {
         className="flex w-full items-center justify-between gap-3 text-left"
       >
         <div>
-          <Label>If the market moves</Label>
+          <Label>If prices move</Label>
           <p className="muted mt-1 text-[0.8125rem] leading-relaxed">
             Your liquidity positions convert as prices move. This is what you would be left holding.
           </p>
@@ -39,8 +39,22 @@ export function ScenarioCard({ scenarios }: { scenarios: Scenarios }) {
 
       {open ? (
         <div className="mt-4 space-y-5">
-          <Side title="If crypto rises" side={scenarios.up} tone="text-gain" />
-          <Side title="If crypto falls" side={scenarios.down} tone="text-loss" />
+          {scenarios.caveat ? (
+            <p className="rounded-xl border border-warn/25 bg-warn/[0.06] p-3 text-xs leading-relaxed text-ink-secondary">
+              {scenarios.caveat}
+            </p>
+          ) : null}
+
+          <Side
+            title={scenarios.upLabel ? `If ${scenarios.upLabel}` : 'One way'}
+            side={scenarios.up}
+            tone="text-gain"
+          />
+          <Side
+            title={scenarios.downLabel ? `If ${scenarios.downLabel}` : 'The other way'}
+            side={scenarios.down}
+            tone="text-loss"
+          />
 
           {scenarios.perPosition.length ? (
             <div>
@@ -51,6 +65,9 @@ export function ScenarioCard({ scenarios }: { scenarios: Scenarios }) {
                     <p className="text-sm font-medium">
                       {p.symbol}
                       {p.kind === 'crypto-vs-stock' ? <span className="ml-2 pill-stock">Crypto vs stock</span> : null}
+                    </p>
+                    <p className="mt-0.5 text-[0.6875rem] text-ink-muted">
+                      A bet on {p.axisLabel}
                     </p>
                     <p className="mt-1 text-xs leading-relaxed text-ink-secondary">{p.explanation}</p>
                     <div className="mt-2 grid grid-cols-2 gap-3 text-xs">

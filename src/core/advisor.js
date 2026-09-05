@@ -104,9 +104,12 @@ export function observe(portfolio) {
     const upTop = scenarios.up.holdings?.[0];
     const downTop = scenarios.down.holdings?.[0];
     if (upTop && downTop && upTop.symbol !== downTop.symbol) {
+      const up = scenarios.upLabel ? `If ${scenarios.upLabel}` : 'One way';
+      const down = scenarios.downLabel ? `if ${scenarios.downLabel}` : 'the other way';
       add('scenario-flip', 'attention',
-        `Your exposure flips with the market`,
-        `If prices rise your liquidity converts towards ${upTop.symbol} (${upTop.pct.toFixed(0)}% of the portfolio). If they fall, towards ${downTop.symbol} (${downTop.pct.toFixed(0)}%). Today's split does not show that.`,
+        'Your exposure flips as prices move',
+        `${up}, your liquidity converts towards ${upTop.symbol} (${upTop.pct.toFixed(0)}% of the portfolio); ${down}, towards ${downTop.symbol} (${downTop.pct.toFixed(0)}%). Today's split does not show that.`
+        + (scenarios.caveat ? ` ${scenarios.caveat}` : ''),
         null);
     }
   }
@@ -169,8 +172,25 @@ export function portfolioFacts(portfolio) {
     stocksHeldInWalletUsd: holdings?.stocks?.walletUsd ?? null,
     stocksInsideLiquidityUsd: holdings?.stocks?.inPoolsUsd ?? null,
     marketBiasPct: exposure?.marketBiasPct ?? null,
-    ifMarketRises: scenarios?.up?.holdings?.slice(0, 4) ?? [],
-    ifMarketFalls: scenarios?.down?.holdings?.slice(0, 4) ?? [],
+    // Named by axis, never "the market". A WETH/NVDAc position does not care
+    // whether crypto rises, only whether ETH rises against NVDA, and an answer
+    // that says "the market" for it is wrong even when the arithmetic is right.
+    ifPricesMove: {
+      upMeans: scenarios?.upLabel ?? null,
+      downMeans: scenarios?.downLabel ?? null,
+      mixedAxes: scenarios?.mixedAxes ?? false,
+      caveat: scenarios?.caveat ?? null,
+      endsUpHoldingIfUp: scenarios?.up?.holdings?.slice(0, 4) ?? [],
+      endsUpHoldingIfDown: scenarios?.down?.holdings?.slice(0, 4) ?? [],
+      perPosition: (scenarios?.perPosition ?? []).map((x) => ({
+        pair: x.symbol,
+        isABetOn: x.axisLabel,
+        upMeans: x.upMeans,
+        downMeans: x.downMeans,
+        endsUpHoldingIfUp: `${x.upAmount} ${x.upAsset}`,
+        endsUpHoldingIfDown: `${x.downAmount} ${x.downAsset}`,
+      })),
+    },
     positions: open.map((p) => ({
       id: p.id, pair: p.symbol, valueUsd: p.valueUsd,
       inRange: p.inRange, staked: p.staked,

@@ -47,6 +47,49 @@ export function terminalAmounts(position) {
   };
 }
 
+/**
+ * What a position is actually a bet on.
+ *
+ * This matters more than it looks. "If the market rises" is meaningless for a
+ * WETH/NVDAc pool: that position does not care whether crypto rises, it cares
+ * whether ETH rises AGAINST NVDA. A WETH/cbBTC pool is a bet on ETH against BTC,
+ * and both can be true while crypto as a whole does anything at all. Rolling
+ * them into one "up" and one "down" is how an answer ends up saying "the market"
+ * and meaning nothing.
+ */
+function axisOf(position) {
+  const stock0 = position.token0.isTokenizedStock || STOCK_ADDRESSES.has(position.token0.address);
+  const stock1 = position.token1.isTokenizedStock || STOCK_ADDRESSES.has(position.token1.address);
+  const stable0 = position.token0.assetClass === 'STABLE';
+  const stable1 = position.token1.assetClass === 'STABLE';
+  const s0 = position.token0.symbol;
+  const s1 = position.token1.symbol;
+
+  if (stock0 !== stock1) {
+    return {
+      axis: 'crypto-vs-stocks',
+      label: 'crypto against stocks',
+      upMeans: `${s0} gains on ${s1}`,
+      downMeans: `${s1} gains on ${s0}`,
+    };
+  }
+  if (stable0 !== stable1) {
+    const risky = stable0 ? s1 : s0;
+    return {
+      axis: 'crypto-vs-dollar',
+      label: `${risky} against the dollar`,
+      upMeans: stable1 ? `${risky} rises in dollars` : `${risky} falls in dollars`,
+      downMeans: stable1 ? `${risky} falls in dollars` : `${risky} rises in dollars`,
+    };
+  }
+  return {
+    axis: 'asset-vs-asset',
+    label: `${s0} against ${s1}`,
+    upMeans: `${s0} gains on ${s1}`,
+    downMeans: `${s1} gains on ${s0}`,
+  };
+}
+
 /** Is this pair a crypto asset against a tokenized stock? The narrative differs. */
 function isCryptoVsStock(position) {
   const a = position.token0.isTokenizedStock || STOCK_ADDRESSES.has(position.token0.address);
@@ -109,10 +152,16 @@ export function computeScenarios(positions, tokens) {
     addTo(downMap, p.token0, down.token0, price0);
 
     const stockPair = isCryptoVsStock(p);
+    const axis = axisOf(p);
     perPosition.push({
       id: p.id,
       symbol: p.symbol,
       kind: stockPair ? 'crypto-vs-stock' : 'crypto',
+      // Never "the market". This position's own axis, named.
+      axis: axis.axis,
+      axisLabel: axis.label,
+      upMeans: axis.upMeans,
+      downMeans: axis.downMeans,
       // token1 is the upside asset because price is token0 denominated in token1:
       // price rising means token0 is being sold for token1.
       upAsset: p.token1.symbol,
@@ -129,10 +178,26 @@ export function computeScenarios(positions, tokens) {
     });
   }
 
+  // The combined view is only one story when every position tells the same one.
+  const axes = [...new Set(perPosition.map((x) => x.axis))];
+  const mixedAxes = axes.length > 1;
+
   return {
     up: toSlices(upMap),
     down: toSlices(downMap),
     perPosition,
     hasPositions: open.length > 0,
+    axes,
+    mixedAxes,
+    /** What "up" means across the portfolio, in words, or why it cannot be said. */
+    upLabel: mixedAxes
+      ? 'every position moving in favour of its first asset at once'
+      : (perPosition[0]?.upMeans ?? null),
+    downLabel: mixedAxes
+      ? 'every position moving the other way at once'
+      : (perPosition[0]?.downMeans ?? null),
+    caveat: mixedAxes
+      ? 'These positions are not bets on the same thing, so the combined view assumes all of them move the same way at once. Read each position on its own axis below.'
+      : null,
   };
 }
