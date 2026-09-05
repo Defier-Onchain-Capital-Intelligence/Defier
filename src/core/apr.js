@@ -10,6 +10,7 @@
  */
 
 import { ethers } from 'ethers';
+import { AERODROME_CL_DEPLOYMENTS } from './constants.base.js';
 import {
   VOTER_ADDRS, VOTER_ABI, GAUGE_ABI,
   V3_POOL_ABI_MIN, AERO_POOL_ABI_MIN,
@@ -58,16 +59,27 @@ export async function resolvePoolAddress(pool, provider, chain) {
     return { error: 'No underlyingTokens in pool data' };
   }
 
-  try {
-    const factory = new ethers.Contract(factoryAddr, cfg.abi, provider);
-    const [t0, t1] = pool.underlyingTokens;
-    const addr = await withTimeout(factory.getPool(t0, t1, param), 6000);
-    const ZERO = '0x0000000000000000000000000000000000000000';
-    if (!addr || addr === ZERO) return { error: 'Factory returned zero address' };
-    return { addr: addr.toLowerCase() };
-  } catch (e) {
-    return { error: `Factory call failed: ${(e.message || '').slice(0, 80)}` };
+  // Base runs more than one Aerodrome Slipstream deployment, and a pool that
+  // lives on the second one answers the zero address on the first. Asking only
+  // the first is what made every tokenized stock pool unreadable.
+  const factories = cfgKey === 'aerodrome-v3' && chain === 'base'
+    ? [...new Set([factoryAddr, ...AERODROME_CL_DEPLOYMENTS.map((d) => d.factory)])]
+    : [factoryAddr];
+
+  const ZERO = '0x0000000000000000000000000000000000000000';
+  const [t0, t1] = pool.underlyingTokens;
+  let lastError = 'Factory returned zero address';
+
+  for (const addrOfFactory of factories) {
+    try {
+      const factory = new ethers.Contract(addrOfFactory, cfg.abi, provider);
+      const addr = await withTimeout(factory.getPool(t0, t1, param), 6000);
+      if (addr && addr !== ZERO) return { addr: addr.toLowerCase() };
+    } catch (e) {
+      lastError = `Factory call failed: ${(e.message || '').slice(0, 80)}`;
+    }
   }
+  return { error: lastError };
 }
 
 // ─── On-chain pool data ─────────────────────────────────────────────────────────

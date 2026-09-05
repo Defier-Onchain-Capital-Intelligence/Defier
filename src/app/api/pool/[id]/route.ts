@@ -36,7 +36,11 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
 
     const detail = await buildPoolDetail(pool);
     if (detail?.error) {
-      return NextResponse.json({ error: 'Could not read this pool on Base right now.' }, { status: 502 });
+      console.error('[pool] unreadable', { id, reason: detail.error });
+      return NextResponse.json({
+        error: 'Could not read this pool on Base right now.',
+        ...(new URL(req.url).searchParams.get('debug') === '1' ? { reason: detail.error } : {}),
+      }, { status: 502 });
     }
 
     cache.set(id, { at: Date.now(), data: detail });
