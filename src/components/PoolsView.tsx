@@ -22,7 +22,7 @@ import { PositionsList } from '@/components/PositionsView';
 import { usePoolList } from '@/lib/usePool';
 
 type Tab = 'mine' | 'find';
-type Sort = 'fee7d' | 'apy' | 'tvl' | 'volume';
+type Sort = 'fee7d' | 'fee30d' | 'apy' | 'tvl' | 'volume';
 
 const PROJECT_LABEL: Record<string, string> = {
   'aerodrome-slipstream': 'Aerodrome',
@@ -75,6 +75,7 @@ function FindPools() {
       .filter((p) => project === 'all' || p.project === project);
     const key = (p: PoolRow) =>
       sort === 'fee7d' ? (p.feeApr7d ?? -1)
+      : sort === 'fee30d' ? (p.feeApr30d ?? -1)
       : sort === 'apy' ? (p.apy ?? -1)
       : sort === 'volume' ? (p.volumeUsd1d ?? -1)
       : p.tvlUsd;
@@ -101,6 +102,7 @@ function FindPools() {
         </FilterRow>
         <FilterRow label="Sort by">
           <Chip active={sort === 'fee7d'} onClick={() => setSort('fee7d')}>Fee APR 7d</Chip>
+          <Chip active={sort === 'fee30d'} onClick={() => setSort('fee30d')}>Fee APR 30d</Chip>
           <Chip active={sort === 'apy'} onClick={() => setSort('apy')}>APY today</Chip>
           <Chip active={sort === 'volume'} onClick={() => setSort('volume')}>Volume</Chip>
           <Chip active={sort === 'tvl'} onClick={() => setSort('tvl')}>TVL</Chip>
@@ -117,9 +119,17 @@ function FindPools() {
           <span className="text-[0.6875rem] text-ink-muted">
             full range APR
             <InfoDot label="Full range APR">
-              Every figure here is all the fees over all the liquidity, concentrated or not.
-              That is the floor and the only fair comparison between two pools. Open a pool
-              to see what a concentrated range would multiply it by.
+              <span className="block">
+                Every figure here is all the fees over all the liquidity, concentrated or not.
+                That is the floor and the only fair comparison between two pools. Open a pool
+                to see what a concentrated range would multiply it by.
+              </span>
+              <span className="mt-2 block">
+                The averages are each day&rsquo;s fee APR weighted by that day&rsquo;s TVL, so a day
+                the pool was small cannot hijack the month. We do not use the published 30 day
+                average: it is a plain mean of daily APY and we measured it at 1461% on a pool
+                trading at 109%.
+              </span>
             </InfoDot>
           </span>
         </div>
@@ -166,6 +176,9 @@ function PoolRowItem({ pool }: { pool: PoolRow }) {
             {pool.feeApr7d != null ? pct(pool.feeApr7d) : '—'}
           </p>
           <p className="text-[0.6875rem] text-ink-muted">fees, 7d avg</p>
+          {pool.feeApr30d != null ? (
+            <p className="text-[0.6875rem] tnum text-ink-muted">{pct(pool.feeApr30d)} over 30d</p>
+          ) : null}
         </div>
       </div>
 

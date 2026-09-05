@@ -14,8 +14,11 @@ export interface PoolRow {
   apy: number | null;
   apyBase: number | null;
   apyReward: number | null;
-  /** Seven days of fees annualised. The stable column. */
+  /** TVL weighted mean daily fee APR. The stable column. */
   feeApr7d: number | null;
+  feeApr30d: number | null;
+  feeAprDays: number;
+  publishedApyBase7d: number | null;
   hasStock: boolean;
   tokens: string[];
 }
