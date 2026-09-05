@@ -24,7 +24,7 @@
 import { fetchPoolOnchainData, calcOnchainAPR } from './apr.js';
 import { fetchPoolTicks, buildHistogramBuckets } from './ticks.js';
 import { getTickSpacing, getPoolFeeDec, getRangePresets, classifyRisk, detectPoolType } from './pools.js';
-import { tickToPrice } from './math.js';
+import { tickToPrice, computeLPerDollar } from './math.js';
 
 /** Widths the slider can land on, as a fraction either side of the current price. */
 const GRID = [
@@ -135,22 +135,41 @@ export async function buildPoolDetail(pool) {
   const emissionsPerYearUsd = Number(onchain.emissionsData?.emissionsPerYearUSD) || 0;
   const rewardLabel = onchain.emissionsData?.rewardLabel || null;
 
-  // Emissions are shared out by liquidity in range exactly as fees are, so the
-  // same per-dollar liquidity figure applies to both sides.
+  /**
+   * One dollar's share of the liquidity that is actually earning right now.
+   *
+   * Everything on this screen comes from this single number. Fees and gauge
+   * emissions are both shared out by liquidity in range, in exactly the same
+   * proportion, so both are that share of the pool's annual take.
+   *
+   * The earlier version multiplied the pool's average emissions APR by the
+   * concentration factor, which mixed two different bases: the average was per
+   * dollar of TOTAL value locked, the multiplier was relative to a full range
+   * dollar. It produced 53,688% on a pool paying 106%.
+   */
+  const shareOfActive = (pctLow, pctHigh) => {
+    const lPerDollar = computeLPerDollar(
+      onchain.sqrtP_raw, onchain.d0, onchain.d1, pctLow, pctHigh, onchain.price0, onchain.price1,
+    );
+    if (!lPerDollar || !onchain.L_active) return null;
+    return lPerDollar / onchain.L_active;
+  };
+
+  const fullShare = shareOfActive(0.999, 0.999);
+
   const aprAt = (pctLow, pctHigh) => {
     const feeApr = calcOnchainAPR(onchain, priced, pctLow, pctHigh);
     if (feeApr == null) return null;
-    const fullFee = calcOnchainAPR(onchain, priced, 0.999, 0.999);
-    const concentration = fullFee && fullFee > 0 ? feeApr / fullFee : null;
-    const rewardApr = emissionsPerYearUsd > 0 && concentration != null && pool.tvlUsd > 0
-      ? (emissionsPerYearUsd / pool.tvlUsd) * 100 * concentration
+    const share = shareOfActive(pctLow, pctHigh);
+    const rewardApr = emissionsPerYearUsd > 0 && share != null
+      ? emissionsPerYearUsd * share * 100
       : null;
     return {
       pctLow, pctHigh,
       feeAprPct: feeApr,
       rewardAprPct: rewardApr,
       totalAprPct: feeApr + (rewardApr || 0),
-      concentrationX: concentration,
+      concentrationX: share != null && fullShare ? share / fullShare : null,
     };
   };
 
@@ -207,6 +226,18 @@ export async function buildPoolDetail(pool) {
       apyMean30dPct: pool.apyMean30d ?? null,
     },
     /** Ours, and the only averages the UI is allowed to call an average. */
+    /**
+     * What the average dollar already in this pool earns, from DeFiLlama: fees
+     * over total value locked. It is NOT what a full range dollar earns, because
+     * most of a concentrated pool's value sits near the price. The calculator
+     * answers the other question — what a dollar in a chosen range would earn
+     * against the liquidity already there — and without this reference line the
+     * two look like they contradict each other.
+     */
+    averageDollar: {
+      feeAprPct: pool.apyBase ?? null,
+      rewardAprPct: pool.apyReward ?? null,
+    },
     stable: {
       feeApr7dPct: w7?.aprPct ?? null,
       feeApr7dDays: w7?.daysCovered ?? 0,

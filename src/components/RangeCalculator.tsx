@@ -111,19 +111,19 @@ export function RangeCalculator({ pool }: { pool: PoolDetail }) {
 
       <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Figure label="Fee APR" value={pct(point.feeAprPct)} tone="text-ink-primary"
-          info="Trading fees only, for this range, against the pool's real active liquidity right now." />
+          info="Trading fees only. Your dollar's share of the liquidity that is actually earning at this price, times what the pool takes in fees over a year at today's volume." />
         <Figure
           label={pool.rewardLabel || 'Rewards'}
           value={point.rewardAprPct != null ? pct(point.rewardAprPct) : '—'}
           tone="text-stock"
-          info="Emissions from the pool gauge, which require staking the position NFT. They are shared out by liquidity in range exactly as fees are." />
+          info="Emissions from the pool gauge, which require staking the position NFT. They are shared out by liquidity in range in exactly the same proportion as fees, so this is the same share applied to the gauge's annual emissions." />
         <Figure label="Total APR" value={pct(point.totalAprPct)} tone="text-gain"
           info="Fees plus emissions for this range. It assumes the price stays inside it: out of range, both go to zero." />
         <Figure
           label="Concentration"
           value={point.concentrationX != null ? `${point.concentrationX.toFixed(1)}x` : '—'}
           tone="text-ink-primary"
-          info="How much more this range earns than the same money spread across every price. The same multiple is what takes you out of range sooner." />
+          info="How much more this range earns than the same dollar spread across every price. The multiple that buys you the extra yield is the same one that takes you out of range sooner." />
       </div>
 
       {simulateHref ? (
@@ -136,9 +136,20 @@ export function RangeCalculator({ pool }: { pool: PoolDetail }) {
         </Link>
       ) : null}
 
+      {pool.averageDollar.feeAprPct != null ? (
+        <p className="mt-4 rounded-xl bg-bg-elevated p-3 text-[0.6875rem] leading-relaxed text-ink-secondary">
+          For reference, the average dollar already in this pool earns{' '}
+          <span className="tnum text-ink-primary">{pct(pool.averageDollar.feeAprPct)}</span> in fees.
+          That average is mostly made of tightly concentrated positions, which is why a wide range
+          here pays so much less than it: your dollar would be sharing the same fees with all the
+          liquidity sitting right at the price.
+        </p>
+      ) : null}
+
       <p className="mt-3 text-[0.6875rem] leading-relaxed text-ink-muted">
-        Computed from the pool&rsquo;s liquidity and last 24h of volume. Volume changes, so this is
-        what the range would pay at today&rsquo;s trading, not a promise about tomorrow.
+        Computed against the liquidity actually in the pool right now and its last 24h of volume.
+        Both move, so this is what the range would pay at today&rsquo;s trading, not a promise about
+        tomorrow.
       </p>
     </Card>
   );

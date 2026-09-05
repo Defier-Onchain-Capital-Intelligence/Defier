@@ -69,6 +69,7 @@ export interface PoolDetail {
     apyBase7dPct: number | null;
     apyMean30dPct: number | null;
   };
+  averageDollar: { feeAprPct: number | null; rewardAprPct: number | null };
   stable: {
     feeApr7dPct: number | null;
     feeApr7dDays: number;
