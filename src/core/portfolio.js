@@ -262,9 +262,29 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
 
   const withPnl = positions.filter((p) => p.pnl);
   const openRollup = rollup(open);
+
+  // Wallet level facts for the History view. "Open" here means capital is still
+  // deposited, in range or not; a position out of range is still your money.
+  const openedAts = positions.map((p) => p.openedAt).filter(Boolean);
+  const firstPositionAt = openedAts.length ? Math.min(...openedAts) : null;
+  const lifetime = {
+    positionsOpened: positions.length,
+    positionsClosed: positions.filter((p) => p.closed).length,
+    feesClaimedUsd: positions.reduce((a, p) => a + (p.pnl?.feesClaimedUsd || 0), 0),
+    feesUnclaimedUsd: positions.reduce((a, p) => a + (p.feesUnclaimed?.usd || 0), 0),
+    incentivesClaimedUsd: positions.reduce((a, p) => a + (p.pnl?.incentivesClaimedUsd || 0), 0),
+    incentivesPendingUsd: positions.reduce((a, p) => a + (p.incentivesPending?.usd || 0), 0),
+    gasUsd: positions.reduce((a, p) => a + (p.pnl?.gasUsd || 0), 0),
+    netPnlUsd: 0,
+    lpVsHodlUsd: 0,
+    firstPositionAt,
+    daysActive: firstPositionAt ? (Math.floor(Date.now() / 1000) - firstPositionAt) / 86400 : 0,
+  };
   const allTimeRollup = rollup(positions);
   const lpNetPnlUsd = allTimeRollup.netPnlUsd;
   const lpVsHodlUsd = allTimeRollup.lpVsHodlUsd;
+  lifetime.netPnlUsd = lpNetPnlUsd;
+  lifetime.lpVsHodlUsd = lpVsHodlUsd;
 
   // Wallet balances, tokenized stocks and lending. Without these, exposure
   // describes only the deployed half of the wallet and reads as if the rest
@@ -312,6 +332,7 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
     incentivesTotalUsd,
     open: openRollup,
     allTime: allTimeRollup,
+    lifetime,
     headline: '',
     historyHeadline: null,
     confidence: positions.length && positions.every((p) => p.confidence === 'full') ? 'full' : 'partial',

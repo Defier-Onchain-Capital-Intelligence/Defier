@@ -1,5 +1,26 @@
-/** Route /position/[id] · id = `${protocol}:${tokenId}` · 9-line P&L table, event history, range bar, Simulate CTA. */
-export default async function PositionPage({ params }: { params: Promise<{ id: string }> }) {
+import { Suspense } from 'react';
+import { PositionDetail } from '@/components/PositionDetail';
+import { Skeleton, EmptyState } from '@/components/ui/Primitives';
+
+export const dynamic = 'force-dynamic';
+
+export default async function PositionPage({
+  params, searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ wallet?: string }>;
+}) {
   const { id } = await params;
-  return <main className="mx-auto max-w-5xl px-4 py-12"><h1 className="kpi">Position {id}</h1></main>;
+  const { wallet } = await searchParams;
+  const clean = wallet?.toLowerCase();
+
+  if (!clean || !/^0x[0-9a-f]{40}$/.test(clean)) {
+    return <EmptyState title="No wallet" body="Open this position from the positions list." />;
+  }
+
+  return (
+    <Suspense fallback={<Skeleton className="h-64" />}>
+      <PositionDetail id={decodeURIComponent(id)} wallet={clean} />
+    </Suspense>
+  );
 }

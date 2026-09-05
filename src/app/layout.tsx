@@ -8,7 +8,7 @@ export const metadata: Metadata = {
   description: 'Onchain capital intelligence on Base. True LP P&L, LP vs HODL, exposure, tokenized stocks and an AI that explains it.',
   // TODO(Part 4): Mini App metadata (fc:frame / fc:miniapp) per docs.base.org/mini-apps
 };
-export const viewport: Viewport = { width: 'device-width', initialScale: 1, themeColor: '#FAFAF9' };
+export const viewport: Viewport = { width: 'device-width', initialScale: 1, maximumScale: 5, themeColor: '#08090C' };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

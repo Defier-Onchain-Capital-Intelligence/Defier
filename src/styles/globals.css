@@ -2,22 +2,47 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Design tokens live in tailwind.config.ts. Keep this file small. */
+/* Tokens live in tailwind.config.ts. Keep this file small: anything that needs
+   a class here is a pattern, not a one-off. */
+
 @layer base {
-  html { @apply bg-bg-base text-ink-primary antialiased; }
+  html {
+    @apply bg-bg-base text-ink-primary antialiased;
+    -webkit-tap-highlight-color: transparent;
+  }
   body { @apply min-h-screen; }
+
+  /* Figures never reflow as they update. A dashboard whose numbers jiggle while
+     you read them feels broken even when it is correct. */
+  .tnum { font-variant-numeric: tabular-nums; }
 }
 
 @layer components {
-  .card      { @apply bg-bg-surface border border-bg-border rounded-xl2 shadow-card p-5; }
-  .kpi       { @apply text-kpi tabular-nums; }
-  .hero-num  { @apply text-hero tabular-nums; }
-  .pill      { @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium; }
-  .pill-gain { @apply pill bg-gain-soft text-gain; }
-  .pill-loss { @apply pill bg-loss-soft text-loss; }
-  .pill-warn { @apply pill bg-warn-soft text-warn; }
-  .btn       { @apply inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition; }
-  .btn-primary { @apply btn bg-accent text-white hover:bg-accent-dim; }
-  .btn-ghost   { @apply btn border border-bg-border bg-bg-surface hover:bg-bg-elevated; }
-  .muted     { @apply text-ink-muted text-sm; }
+  .card        { @apply bg-bg-surface border border-bg-border rounded-xl2 shadow-card; }
+  .card-p      { @apply card p-4; }
+  .label       { @apply text-micro uppercase text-ink-muted font-medium; }
+  .kpi         { @apply text-kpi tnum; }
+  .hero-num    { @apply text-hero tnum; }
+  .muted       { @apply text-ink-secondary text-sm; }
+
+  .pill        { @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.6875rem] font-medium; }
+  .pill-gain   { @apply pill bg-gain-soft text-gain; }
+  .pill-loss   { @apply pill bg-loss-soft text-loss; }
+  .pill-warn   { @apply pill bg-warn-soft text-warn; }
+  .pill-stock  { @apply pill bg-stock-soft text-stock; }
+  .pill-muted  { @apply pill bg-bg-elevated text-ink-secondary; }
+
+  .btn          { @apply inline-flex items-center justify-center rounded-xl px-4 py-3 text-sm font-medium transition-colors; }
+  .btn-primary  { @apply btn bg-accent text-white hover:bg-accent-dim active:bg-accent-dim disabled:opacity-40; }
+  .btn-ghost    { @apply btn border border-bg-border bg-bg-surface text-ink-primary hover:bg-bg-elevated; }
+
+  .input        { @apply w-full rounded-xl bg-bg-elevated border border-bg-border px-4 py-3 text-sm
+                         text-ink-primary placeholder:text-ink-muted outline-none
+                         focus:border-accent focus:ring-1 focus:ring-accent; }
+
+  .tab          { @apply flex-1 rounded-lg px-3 py-2 text-sm font-medium text-ink-secondary transition-colors; }
+  .tab-active   { @apply bg-accent text-white; }
+
+  .row          { @apply flex items-center justify-between gap-3 py-3; }
+  .divide-hair  { @apply divide-y divide-bg-border; }
 }

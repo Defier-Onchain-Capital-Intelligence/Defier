@@ -129,6 +129,23 @@ export interface Exposure {
   marketBiasPct: number;        // % not in stables
 }
 
+/** Everything this wallet has ever done with liquidity, for the History view.
+ *  Separate from the rollups because these are wallet level facts, not a sum of
+ *  what is currently on screen. */
+export interface LifetimeStats {
+  positionsOpened: number;
+  positionsClosed: number;
+  feesClaimedUsd: number;      // already taken out of positions
+  feesUnclaimedUsd: number;    // still sitting in open positions
+  incentivesClaimedUsd: number;
+  incentivesPendingUsd: number;
+  gasUsd: number;
+  netPnlUsd: number;
+  lpVsHodlUsd: number;
+  firstPositionAt: number | null;   // unix seconds
+  daysActive: number;
+}
+
 /** One aggregation of P&L over a set of positions. */
 export interface PnlRollup {
   positions: number;
@@ -156,6 +173,8 @@ export interface PortfolioSummary {
    *  interesting number, but it belongs in its own card and not in the headline:
    *  a trade from a year ago should not describe today. */
   allTime: PnlRollup;
+  /** Wallet level totals for the History view. */
+  lifetime: LifetimeStats;
   headline: string;             // about open positions, engine-generated
   historyHeadline: string | null; // about all time, null when nothing is closed
   confidence: Confidence;

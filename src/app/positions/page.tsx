@@ -1,4 +1,22 @@
-/** Route /positions · see 02_PLAN_DESARROLLO.md Part 3 for the screen spec. */
-export default function Page() {
-  return <main className="mx-auto max-w-5xl px-4 py-12"><h1 className="kpi capitalize">positions</h1></main>;
+import { Suspense } from 'react';
+import { PositionsView } from '@/components/PositionsView';
+import { Skeleton, EmptyState } from '@/components/ui/Primitives';
+
+export const dynamic = 'force-dynamic';
+
+export default async function PositionsPage({
+  searchParams,
+}: { searchParams: Promise<{ wallet?: string; tab?: string }> }) {
+  const { wallet, tab } = await searchParams;
+  const clean = wallet?.toLowerCase();
+
+  if (!clean || !/^0x[0-9a-f]{40}$/.test(clean)) {
+    return <EmptyState title="No wallet yet" body="Open a wallet from the portfolio screen to see its positions." />;
+  }
+
+  return (
+    <Suspense fallback={<Skeleton className="h-64" />}>
+      <PositionsView address={clean} initialTab={tab === 'closed' ? 'closed' : 'open'} />
+    </Suspense>
+  );
 }
