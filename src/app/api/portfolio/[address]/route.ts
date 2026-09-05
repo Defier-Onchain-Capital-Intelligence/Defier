@@ -27,6 +27,7 @@ function shape(portfolio: Portfolio, compact: boolean) {
     generatedAt: portfolio.generatedAt,
     summary: portfolio.summary,
     exposure: portfolio.exposure,
+    scenarios: portfolio.scenarios,
     tokens: portfolio.tokens.map((h) => ({
       symbol: h.token.symbol,
       isTokenizedStock: h.token.isTokenizedStock ?? false,
