@@ -173,7 +173,9 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
         // positions() reverting with "ID" means the NFT was burned: the position was
         // closed and destroyed. That is a fact about the wallet, not a failure.
         if (message.includes('"ID"')) {
-          warnings.push(`Position ${item.tokenId} was closed and burned, so its final state cannot be read onchain.`);
+          // The NFT was destroyed after the position was fully closed. There is
+          // no capital and no history to show, so it is a diagnostic fact, not
+          // something to put in front of someone looking at their money.
           trace('burnedTokenId', item.tokenId);
         } else {
           trace('enrichThrew', { tokenId: item.tokenId, error: message });

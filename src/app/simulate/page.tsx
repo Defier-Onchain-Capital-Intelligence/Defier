@@ -1,4 +1,28 @@
-/** Route /simulate · see 02_PLAN_DESARROLLO.md Part 3 for the screen spec. */
-export default function Page() {
-  return <main className="mx-auto max-w-5xl px-4 py-12"><h1 className="kpi capitalize">simulate</h1></main>;
+import { Suspense } from 'react';
+import { SimulateView } from '@/components/SimulateView';
+import { Skeleton } from '@/components/ui/Primitives';
+
+export const dynamic = 'force-dynamic';
+
+/** Values can be preloaded from a real position, so the simulator starts from
+ *  something the user already has rather than from invented defaults. */
+export default async function SimulatePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ entry?: string; low?: string; high?: string; size?: string; apr?: string; days?: string }>;
+}) {
+  const q = await searchParams;
+  const num = (value?: string) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+  };
+
+  return (
+    <Suspense fallback={<Skeleton className="h-64" />}>
+      <SimulateView preset={{
+        entryPrice: num(q.entry), lowerPrice: num(q.low), upperPrice: num(q.high),
+        positionUsd: num(q.size), aprPct: num(q.apr), days: num(q.days),
+      }} />
+    </Suspense>
+  );
 }

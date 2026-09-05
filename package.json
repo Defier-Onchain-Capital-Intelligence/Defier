@@ -35,5 +35,10 @@
     "autoprefixer": "10.5.4",
     "eslint": "8.57.1",
     "eslint-config-next": "15.5.25"
+  },
+  "overrides": {
+    "axios": "1.20.0",
+    "ws": "8.21.3",
+    "elliptic": "6.6.1"
   }
 }

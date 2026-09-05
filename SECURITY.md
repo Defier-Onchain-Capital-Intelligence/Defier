@@ -37,8 +37,32 @@ Regla: si una variable empieza por `NEXT_PUBLIC_`, asume que está impresa en la
 - RLS habilitado en todas las tablas (el `schema.sql` ya lo trae). Métrica de "capital conectado": tabla `wallet_snapshots` escrita solo desde el servidor con service role; lectura pública solo del agregado vía una vista o función, nunca de las filas.
 
 ## 6. Dependencias
-- `npm audit` antes de cada release. Fijar versiones (no `latest` en `package.json` una vez instaladas: reemplazar por la versión exacta que instaló npm).
-- Instalar solo paquetes conocidos (OnchainKit, wagmi, viem, ethers, recharts, Anthropic SDK, Supabase). Nada de paquetes de "wallet connect" de terceros desconocidos.
+- `npm audit` antes de cada release. Versiones fijadas exactas en `package.json`.
+- Instalar solo paquetes conocidos (OnchainKit, wagmi, viem, ethers, recharts, Anthropic SDK, Supabase).
+
+### Evaluación de vulnerabilidades · 5 sep 2026
+
+Auditoría inicial: **38 vulnerabilidades, 3 críticas y 4 altas**. Casi todas son transitivas del
+árbol de conectores de wallet que arrastra OnchainKit (WalletConnect, MetaMask SDK, Reown AppKit,
+Farcaster Mini App SDK y, por esa vía, `@solana/web3.js`), no de código nuestro.
+
+**Acción tomada**: `overrides` en `package.json` forzando `axios@1.20.0`, `ws@8.21.3` y
+`elliptic@6.6.1`. Resultado: **0 críticas, 1 alta**, con el build intacto.
+
+| Paquete | Severidad | De dónde viene | Evaluación |
+|---|---|---|---|
+| `elliptic` | era crítica | `@ethersproject/signing-key` ← ethers v5 | Resuelto por override a 6.6.1. Además, el motor **nunca firma nada** ni maneja claves privadas: los avisos son sobre firmar o verificar con entradas malformadas |
+| `axios` | era alta | `@coinbase/cdp-sdk` ← conector `baseAccount` | Resuelto por override a 1.20.0. Ese SDK está en el árbol por el botón de conectar wallet; no lo llamamos |
+| `ws` | era alta | `@ethersproject/providers` (WebSocketProvider) y WalletConnect | Resuelto por override a 8.21.3. No usamos WebSocketProvider ni corremos un servidor ws, que es contra lo que van esos DoS |
+| `postcss` | alta | dentro de `next` | **Aceptada**. Es herramienta de build, no de runtime, y el ataque requiere CSS controlado por un atacante en tiempo de compilación. El CSS lo escribimos nosotros. El arreglo exige Next 16, que es un cambio mayor a tres días del deadline |
+| resto (29 moderadas, 14 bajas) | | árbol de conectores de wallet | **Aceptadas para el MVP**. Son rutas de código que la app no ejecuta: relay de WalletConnect, SDK de MetaMask, Solana |
+
+**Deuda registrada**: ethers v5 está en fin de vida y es el origen de dos de las críticas originales.
+Migrar el motor a viem o a ethers v6 es trabajo post-aplicación, no de esta semana.
+
+**Revisar de nuevo** antes de la fase Act (ejecución de transacciones). En cuanto la app firme algo,
+la evaluación de `elliptic` y del árbol de wallet cambia por completo: hoy es aceptable justamente
+porque la app es de solo lectura.
 
 ## 7. Producto
 - La app es de solo lectura: nunca pide firmas, nunca pide seed phrases, nunca construye transacciones. Decirlo en la UI.
