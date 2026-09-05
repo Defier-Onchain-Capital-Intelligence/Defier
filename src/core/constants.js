@@ -182,6 +182,7 @@ export const V3_POOL_ABI_MIN = [
   'function liquidity() view returns (uint128)',
   'function token0() view returns (address)',
   'function token1() view returns (address)',
+  'function fee() view returns (uint24)',
 ];
 export const AERO_POOL_ABI_MIN = [
   'function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16, uint16, uint16, bool)',
@@ -189,6 +190,9 @@ export const AERO_POOL_ABI_MIN = [
   'function stakedLiquidity() view returns (uint128)',
   'function token0() view returns (address)',
   'function token1() view returns (address)',
+  // Aerodrome CL fees are set per pool and are not in DeFiLlama's metadata, so
+  // the chain is the only place the real number exists.
+  'function fee() view returns (uint24)',
 ];
 
 export const MULTICALL3_ABI = [

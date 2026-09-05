@@ -155,10 +155,15 @@ export async function fetchPoolOnchainData(pool) {
     const price1        = r1.status === 'fulfilled' ? r1.value : null;
     const emissionsData = rEmissions.status === 'fulfilled' ? rEmissions.value : null;
 
+    // DeFiLlama's poolMeta carries "CL10" for Aerodrome, which is a tick spacing
+    // and not a fee. Their fees are set per pool, so without this the whole range
+    // calculator returns null on exactly the pools people care about.
+    const feeTier = await withTimeout(pc.fee(), 6000).then((f) => Number(f)).catch(() => null);
+
     return {
       L_active, L_active_str, sqrtP_raw, currentTick,
       d0: Number(d0), d1: Number(d1),
-      price0, price1, emissionsData, poolAddr,
+      price0, price1, emissionsData, poolAddr, feeTier,
     };
   } catch (e) {
     return { error: (e.message || String(e)).slice(0, 120) };

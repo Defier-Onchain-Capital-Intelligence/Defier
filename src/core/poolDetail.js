@@ -93,7 +93,6 @@ export function poolVariantLabel(pool) {
  */
 export async function buildPoolDetail(pool) {
   const tickSpacing = getTickSpacing(pool);
-  const feeDec = getPoolFeeDec(pool);
 
   const [onchain, series] = await Promise.all([
     fetchPoolOnchainData(pool),
@@ -101,8 +100,13 @@ export async function buildPoolDetail(pool) {
   ]);
 
   if (onchain?.error) {
-    return { error: onchain.error, tickSpacing, feeDec };
+    return { error: onchain.error, tickSpacing, feeDec: getPoolFeeDec(pool) };
   }
+
+  // The chain's fee wins over the metadata's guess, and every APR below is
+  // computed against this augmented pool so they all agree.
+  const priced = onchain.feeTier > 0 ? { ...pool, feeTier: onchain.feeTier } : pool;
+  const feeDec = getPoolFeeDec(priced);
 
   const emissionsPerYearUsd = Number(onchain.emissionsData?.emissionsPerYearUSD) || 0;
   const rewardLabel = onchain.emissionsData?.rewardLabel || null;
@@ -110,9 +114,9 @@ export async function buildPoolDetail(pool) {
   // Emissions are shared out by liquidity in range exactly as fees are, so the
   // same per-dollar liquidity figure applies to both sides.
   const aprAt = (pctLow, pctHigh) => {
-    const feeApr = calcOnchainAPR(onchain, pool, pctLow, pctHigh);
+    const feeApr = calcOnchainAPR(onchain, priced, pctLow, pctHigh);
     if (feeApr == null) return null;
-    const fullFee = calcOnchainAPR(onchain, pool, 0.999, 0.999);
+    const fullFee = calcOnchainAPR(onchain, priced, 0.999, 0.999);
     const concentration = fullFee && fullFee > 0 ? feeApr / fullFee : null;
     const rewardApr = emissionsPerYearUsd > 0 && concentration != null && pool.tvlUsd > 0
       ? (emissionsPerYearUsd / pool.tvlUsd) * 100 * concentration
