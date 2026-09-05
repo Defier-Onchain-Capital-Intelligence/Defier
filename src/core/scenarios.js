@@ -121,9 +121,11 @@ export function computeScenarios(positions, tokens) {
       downAsset: p.token0.symbol,
       downAmount: down.token0,
       downValueUsd: down.token0 * price0,
+      // Say the mechanic, not just the outcome. "You end up in NVDAc" sounds like
+      // a reward until you know the pool got there by selling your WETH.
       explanation: stockPair
-        ? `If crypto outperforms ${p.token1.isTokenizedStock ? p.token1.symbol : p.token0.symbol}, this position ends up in ${p.token1.symbol}. If it underperforms, it ends up in ${p.token0.symbol}.`
-        : `If ${p.token0.symbol} rises out of range, this position ends up entirely in ${p.token1.symbol}. If it falls out of range, entirely in ${p.token0.symbol}.`,
+        ? `As ${p.token0.symbol} gains on ${p.token1.symbol}, the pool sells your ${p.token0.symbol} into ${p.token1.symbol}, so you end up holding ${p.token1.symbol}. If ${p.token1.symbol} gains instead, it buys ${p.token0.symbol} the whole way and you end up holding ${p.token0.symbol}.`
+        : `As ${p.token0.symbol} rises, the pool sells it into ${p.token1.symbol}; above your range you hold only ${p.token1.symbol}. As it falls, the pool buys more ${p.token0.symbol}; below your range you hold only ${p.token0.symbol}.`,
     });
   }
 
