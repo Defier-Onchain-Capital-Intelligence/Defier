@@ -200,6 +200,13 @@ export interface LifetimeStats {
   lpVsHodlUsd: number;
   firstPositionAt: number | null;   // unix seconds
   daysActive: number;
+  /** What these totals are actually made of. A partial history says so. */
+  coverage: {
+    positionsRebuiltFromBurnedNfts: number;
+    positionsNotReconstructed: number;
+    complete: boolean;
+    historyLoaded: boolean;
+  };
 }
 
 /** One aggregation of P&L over a set of positions. */
@@ -285,6 +292,13 @@ export interface Portfolio {
   holdings: Holdings;
   /** What the portfolio converts into if the market moves either way. */
   scenarios: Scenarios;
+  /** Burned NFTs found, rebuilt, and missed. The honesty behind "all time". */
+  historyGap: {
+    burnedFound: number;
+    burnedRebuilt: number;
+    burnedMissed: number;
+    deep: boolean;
+  };
   /** Observations about composition. Never instructions: see core/advisor.js. */
   observations: Observation[];
   warnings: string[];

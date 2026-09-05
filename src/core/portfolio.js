@@ -11,7 +11,7 @@
  */
 import { ethers } from 'ethers';
 import { scanWalletPositions, _enrichPosition } from './scanner.js';
-import { getStakedTokenIds, getWalletTokenIdsFromLogs, getPositionHistory, getPendingRewards } from './history.js';
+import { getStakedTokenIds, getWalletTokenIdsFromLogs, getPositionHistory, getPendingRewards, reconstructBurnedPosition } from './history.js';
 import { computeExposure, classify } from './exposure.js';
 import { computeScenarios } from './scenarios.js';
 import { computeHoldings } from './holdings.js';
@@ -86,6 +86,7 @@ function toLpPosition(p, extra = {}) {
     openedAt: extra.openedAt ?? null,
     events: extra.events ?? [],
     pnl: null,
+    strategies: null,
     confidence: extra.confidence ?? 'partial',
     notes: extra.notes ?? [],
   };
@@ -147,6 +148,8 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
 
   // 3. Completeness pass. Anything this wallet ever owned that neither pass found.
   let recovered = [];
+  /** NFTs this wallet owned whose state no longer exists. Their events do. */
+  const burned = [];
   try {
     const sources = [
       ...AERODROME_CL_DEPLOYMENTS.map((d) => ({ protocol: 'aerodrome', nfpm: d.nfpm, factory: d.factory })),
@@ -181,6 +184,7 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
           // no capital and no history to show, so it is a diagnostic fact, not
           // something to put in front of someone looking at their money.
           trace('burnedTokenId', item.tokenId);
+          burned.push({ tokenId: item.tokenId, protocol: proto, nfpm: protoNfpm });
         } else {
           trace('enrichThrew', { tokenId: item.tokenId, error: message });
         }
@@ -249,6 +253,75 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
   }, 3, 100);
 
   const positions = results.filter((r) => r.status === 'fulfilled').map((r) => r.value);
+
+  // 5. Positions whose NFT was burned. Their state is gone, their events are not.
+  //    Skipping them is what makes a wallet with years of history report zero fees
+  //    claimed, so they are rebuilt from the chain rather than quietly dropped.
+  let burnedRebuilt = 0;
+  if (deep && burned.length) {
+    const rebuilt = await batchedRequests(burned.slice(0, 12), async (item) => {
+      const shape = await reconstructBurnedPosition({
+        protocol: item.protocol, tokenId: item.tokenId, nfpmAddr: item.nfpm, wallet,
+      });
+      if (!shape) return null;
+
+      const history = await getPositionHistory({
+        protocol: item.protocol, tokenId: item.tokenId, nfpmAddr: item.nfpm,
+        gaugeAddress: undefined, wallet,
+        token0: { address: shape.token0.address, decimals: shape.token0.decimals },
+        token1: { address: shape.token1.address, decimals: shape.token1.decimals },
+      });
+      if (!history.events.length) return null;
+
+      const position = toLpPosition({
+        protocol: item.protocol,
+        tokenId: item.tokenId,
+        poolAddress: shape.poolAddress,
+        token0: shape.token0,
+        token1: shape.token1,
+        symbol: `${shape.token0.symbol}/${shape.token1.symbol}`,
+        inRange: false,
+        tickLower: shape.tickLower ?? 0,
+        tickUpper: shape.tickUpper ?? 0,
+        currentTick: shape.tickLower ?? 0,
+        liquidity: '0',
+        currentAmounts: null,
+        feesUnclaimed: { token0: 0, token1: 0, usd: 0 },
+      }, {
+        staked: false,
+        nfpmAddress: item.nfpm,
+        events: history.events,
+        openedAt: history.openedAt,
+        closed: true,
+        confidence: history.confidence,
+        notes: [
+          ...history.notes,
+          'This position was closed and its NFT burned. Rebuilt from its onchain events.',
+        ],
+      });
+      position.pnl = computePositionPnl(position);
+      position.strategies = compareStrategies(position);
+      return position;
+    }, 2, 150);
+
+    for (const r of rebuilt) {
+      if (r.status === 'fulfilled' && r.value) { positions.push(r.value); burnedRebuilt += 1; }
+    }
+  }
+
+  /** What the all time figures could not see. Stated, never rounded away. */
+  const historyGap = {
+    burnedFound: burned.length,
+    burnedRebuilt,
+    burnedMissed: Math.max(burned.length - burnedRebuilt, 0),
+    deep,
+  };
+  if (historyGap.burnedMissed > 0) {
+    warnings.push(
+      `${historyGap.burnedMissed} closed ${historyGap.burnedMissed === 1 ? 'position' : 'positions'} could not be rebuilt, `
+      + 'so the all time figures below cover less than this wallet has actually done.',
+    );
+  }
   const open = positions.filter((p) => !p.closed);
 
   const lpValueUsd = open.reduce((a, p) => a + (p.valueUsd || 0), 0);
@@ -288,6 +361,15 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
     lpVsHodlUsd: 0,
     firstPositionAt,
     daysActive: firstPositionAt ? (Math.floor(Date.now() / 1000) - firstPositionAt) / 86400 : 0,
+    // What these totals are made of. Without it "all time" is a claim we cannot
+    // keep: the oldest position we could rebuild is not necessarily the wallet's
+    // first, and a figure that quietly omits half a history is worse than none.
+    coverage: {
+      positionsRebuiltFromBurnedNfts: historyGap.burnedRebuilt,
+      positionsNotReconstructed: historyGap.burnedMissed,
+      complete: historyGap.burnedMissed === 0 && historyGap.deep,
+      historyLoaded: historyGap.deep,
+    },
   };
   const allTimeRollup = rollup(positions);
   const lpNetPnlUsd = allTimeRollup.netPnlUsd;
@@ -367,7 +449,10 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
   }
 
   if (closedCount > 0 && withPnl.length > 0) {
-    summary.historyHeadline = `Since you started: ${headlineFor({
+    const opener = historyGap.burnedMissed > 0
+      ? 'Across the positions we could rebuild:'
+      : 'Since you started:';
+    summary.historyHeadline = `${opener} ${headlineFor({
       lpVsHodlUsd: allTimeRollup.lpVsHodlUsd,
       lpNetPnlUsd: allTimeRollup.netPnlUsd,
       lpValueUsd: allTimeRollup.valueUsd,
@@ -385,6 +470,7 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
     exposure,
     holdings,
     scenarios,
+    historyGap,
     warnings,
     ...(diag ? { diagnostics: diag } : {}),
   };

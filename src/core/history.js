@@ -31,7 +31,7 @@ import { ethers } from 'ethers';
 import {
   NFPM_ADDRS, FACTORY_ADDRS, VOTER_ADDRS, DEPLOY_BLOCKS,
   NFPM_ABI, FACTORY_ABI_AERO, VOTER_ABI,
-  MULTICALL3_ADDR, MULTICALL3_ABI,
+  MULTICALL3_ADDR, MULTICALL3_ABI, POOL_ABI, POOL_ABI_AERO,
 } from './constants.js';
 import {
   BASE_TOKENS, TOKENIZED_STOCKS, CL_GAUGE_ABI, CL_TICK_SPACINGS,
@@ -40,6 +40,7 @@ import {
 import { getProvider, getLogsProvider, chunkedGetLogs, withTimeout, batchedRequests } from './providers.js';
 import { fetchHistoricalPricesBatch } from './prices.js';
 import { findMintViaTransfers, getEverOwnedTokenIds } from './alchemy.js';
+import { getTokenInfo } from './scanner.js';
 
 const ZERO_ADDR = '0x0000000000000000000000000000000000000000';
 const CHAIN = 'base';
@@ -268,6 +269,74 @@ export async function getWalletTokenIdsFromLogs(wallet, protocol = 'aerodrome', 
   );
 
   return owners.filter((r) => r.status === 'fulfilled').map((r) => r.value);
+}
+
+
+// ─── Burned positions ─────────────────────────────────────────────────────────
+
+/**
+ * Rebuild a position whose NFT no longer exists.
+ *
+ * Closing a position and burning its NFT deletes the CONTRACT STATE, not the
+ * chain. `positions(tokenId)` reverts with "ID" and every scanner on the market
+ * treats that as "no such position", which is how a wallet with years of history
+ * gets told it has claimed zero fees. The events are all still there.
+ *
+ * The mint transaction is the key. Its receipt contains the pool's own Mint log,
+ * emitted by the pool contract itself, and that log carries the pool address in
+ * `address` and the tick bounds in its indexed topics. From the pool we read the
+ * pair. After that the position replays like any other.
+ */
+const POOL_MINT_TOPIC = ethers.utils.id('Mint(address,address,int24,int24,uint128,uint256,uint256)');
+const int24Of = (topicHex) => {
+  const raw = ethers.BigNumber.from(topicHex).toNumber();
+  return raw >= 0x800000 ? raw - 0x1000000 : raw;   // two's complement, 24 bits
+};
+
+export async function reconstructBurnedPosition({ protocol = 'aerodrome', tokenId, nfpmAddr, wallet }) {
+  const resolvedNfpm = nfpmAddr || NFPM_ADDRS[protocol]?.[CHAIN];
+  if (!resolvedNfpm) return null;
+
+  const provider = await getProvider(CHAIN);
+  const logsProvider = (await getLogsProvider(CHAIN)) || provider;
+  const currentBlock = await withTimeout(logsProvider.getBlockNumber(), 8000);
+
+  const mintLog = await findMintLog(resolvedNfpm, tokenId, wallet, currentBlock);
+  if (!mintLog?.transactionHash) return null;
+
+  const receipt = await withTimeout(provider.getTransactionReceipt(mintLog.transactionHash), 12000)
+    .catch(() => null);
+  if (!receipt?.logs?.length) return null;
+
+  const nfpmLower = resolvedNfpm.toLowerCase();
+  const poolLog = receipt.logs.find((l) =>
+    l.topics?.[0] === POOL_MINT_TOPIC && String(l.address).toLowerCase() !== nfpmLower);
+  if (!poolLog) return null;
+
+  const poolAddress = String(poolLog.address).toLowerCase();
+  const tickLower = poolLog.topics[2] != null ? int24Of(poolLog.topics[2]) : null;
+  const tickUpper = poolLog.topics[3] != null ? int24Of(poolLog.topics[3]) : null;
+
+  const isAero = protocol === 'aerodrome';
+  const pool = new ethers.Contract(poolAddress, isAero ? POOL_ABI_AERO : POOL_ABI, provider);
+  const [addr0, addr1] = await withTimeout(Promise.all([pool.token0(), pool.token1()]), 10000)
+    .catch(() => [null, null]);
+  if (!addr0 || !addr1) return null;
+
+  const [token0, token1] = await Promise.all([
+    getTokenInfo(provider, addr0).catch(() => null),
+    getTokenInfo(provider, addr1).catch(() => null),
+  ]);
+  if (!token0 || !token1) return null;
+
+  return {
+    poolAddress,
+    tickLower,
+    tickUpper,
+    token0: { address: String(addr0).toLowerCase(), symbol: token0.symbol, decimals: Number(token0.decimals) },
+    token1: { address: String(addr1).toLowerCase(), symbol: token1.symbol, decimals: Number(token1.decimals) },
+    mintTxHash: mintLog.transactionHash,
+  };
 }
 
 // ─── Event timeline ───────────────────────────────────────────────────────────
