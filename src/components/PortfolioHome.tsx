@@ -13,6 +13,7 @@ import { fetchPortfolio } from '@/lib/api';
 import { usd, toneOf, shortAddress } from '@/lib/format';
 import { Card, Label, ExposureBar, Skeleton, ConfidenceNote, EmptyState } from '@/components/ui/Primitives';
 import { PositionRow } from '@/components/PositionRow';
+import { ScenarioCard } from '@/components/ScenarioCard';
 
 export function PortfolioHome({ address }: { address: string }) {
   const [data, setData] = useState<Portfolio | null>(null);
@@ -107,6 +108,8 @@ export function PortfolioHome({ address }: { address: string }) {
           <div className="mt-3"><ExposureBar slices={exposure.byClass} /></div>
         </Card>
       ) : null}
+
+      {data.scenarios ? <ScenarioCard scenarios={data.scenarios} /> : null}
 
       <Card>
         <div className="flex items-baseline justify-between">

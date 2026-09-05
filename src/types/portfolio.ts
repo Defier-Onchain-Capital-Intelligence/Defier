@@ -180,6 +180,33 @@ export interface PortfolioSummary {
   confidence: Confidence;
 }
 
+/** Where each holding lands once liquidity positions leave their range. */
+export interface ScenarioHolding {
+  symbol: string;
+  assetClass: AssetClass;
+  amount: number;
+  valueUsd: number;
+  pct: number;
+}
+
+export interface ScenarioSide {
+  totalUsd: number;
+  holdings: ScenarioHolding[];
+}
+
+export interface Scenarios {
+  up: ScenarioSide;
+  down: ScenarioSide;
+  perPosition: Array<{
+    id: string; symbol: string;
+    kind: 'crypto' | 'crypto-vs-stock';
+    upAsset: string; upAmount: number; upValueUsd: number;
+    downAsset: string; downAmount: number; downValueUsd: number;
+    explanation: string;
+  }>;
+  hasPositions: boolean;
+}
+
 export interface Portfolio {
   address: string;
   chain: 'base';
@@ -189,6 +216,8 @@ export interface Portfolio {
   tokens: TokenHolding[];       // includes tokenized stocks (isTokenizedStock)
   lending: LendingPosition[];
   exposure: Exposure;
+  /** What the portfolio converts into if the market moves either way. */
+  scenarios: Scenarios;
   warnings: string[];
 }
 

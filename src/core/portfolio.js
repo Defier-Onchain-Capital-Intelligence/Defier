@@ -13,6 +13,7 @@ import { ethers } from 'ethers';
 import { scanWalletPositions, _enrichPosition } from './scanner.js';
 import { getStakedTokenIds, getWalletTokenIdsFromLogs, getPositionHistory, getPendingRewards } from './history.js';
 import { computeExposure, classify } from './exposure.js';
+import { computeScenarios } from './scenarios.js';
 import { computePositionPnl, headlineFor } from './pnl.js';
 import { tickToPrice } from './math.js';
 import { STOCK_ADDRESSES, BASE_TOKENS, AERODROME_CL_DEPLOYMENTS } from './constants.base.js';
@@ -314,6 +315,7 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
   const tokens = [...plainTokens.filter((h) => !stockAddresses.has(h.token.address)), ...stocks];
 
   const exposure = computeExposure(positions, tokens, lending);
+  const scenarios = computeScenarios(positions, tokens);
 
   const stakedCount = positions.filter((p) => p.staked).length;
   const closedCount = positions.length - open.length;
@@ -374,6 +376,7 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
     tokens,
     lending,
     exposure,
+    scenarios,
     warnings,
     ...(diag ? { diagnostics: diag } : {}),
   };
