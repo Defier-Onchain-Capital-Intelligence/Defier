@@ -207,6 +207,15 @@ export interface Scenarios {
   hasPositions: boolean;
 }
 
+/** An observation about the portfolio, paired with what exists on Base for it. */
+export interface Observation {
+  id: string;
+  severity: 'info' | 'attention';
+  title: string;
+  detail: string;
+  available: string | null;
+}
+
 export interface Portfolio {
   address: string;
   chain: 'base';
@@ -218,6 +227,8 @@ export interface Portfolio {
   exposure: Exposure;
   /** What the portfolio converts into if the market moves either way. */
   scenarios: Scenarios;
+  /** Observations about composition. Never instructions: see core/advisor.js. */
+  observations: Observation[];
   warnings: string[];
 }
 

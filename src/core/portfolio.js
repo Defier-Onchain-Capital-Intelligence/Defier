@@ -14,6 +14,7 @@ import { scanWalletPositions, _enrichPosition } from './scanner.js';
 import { getStakedTokenIds, getWalletTokenIdsFromLogs, getPositionHistory, getPendingRewards } from './history.js';
 import { computeExposure, classify } from './exposure.js';
 import { computeScenarios } from './scenarios.js';
+import { observe } from './advisor.js';
 import { computePositionPnl, headlineFor } from './pnl.js';
 import { tickToPrice } from './math.js';
 import { STOCK_ADDRESSES, BASE_TOKENS, AERODROME_CL_DEPLOYMENTS } from './constants.base.js';
@@ -367,7 +368,7 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
     }).replace(/^You /, 'you ')}`;
   }
 
-  return {
+  const draft = {
     address: wallet,
     chain: CHAIN,
     generatedAt: Math.floor(Date.now() / 1000),
@@ -380,4 +381,8 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
     warnings,
     ...(diag ? { diagnostics: diag } : {}),
   };
+
+  // Observations depend on the finished object, so they come last.
+  draft.observations = observe(draft);
+  return draft;
 }
