@@ -3,9 +3,10 @@ import { rateLimit } from '@/lib/rateLimit';
 import { getBasePools } from '@/lib/llamaPools';
 import { STOCK_ADDRESSES, TOKENIZED_STOCKS } from '@/core/constants.base.js';
 import { classifyRisk, getPoolFeeDec } from '@/core/pools.js';
-import { poolVariantLabel, fetchPoolSeries, weightedFeeApr } from '@/core/poolDetail.js';
+import { poolVariantLabel, fetchPoolSeries, weightedFeeApr, hasFreshSeries } from '@/core/poolDetail.js';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 const TTL_MS = 10 * 60 * 1000;
 let cache: { at: number; data: unknown } | null = null;
@@ -42,21 +43,31 @@ export async function GET(req: Request) {
     if (!cache || Date.now() - cache.at > TTL_MS) {
       const raw = await getBasePools();
 
-      // Only the pools that can plausibly reach the ranking get a series fetch.
+      // Only the pools that can plausibly reach the ranking get a series fetch,
+      // and only the ones not already cached. Two hundred upstream requests in
+      // one go earns a rate limit, which shows up as blanks in the column the
+      // whole screen is sorted by. Cached pools cost nothing, so over a couple
+      // of requests the ranking fills in and then stays filled.
       const ranked = [...raw].sort((a, b) => (b.tvlUsd ?? 0) - (a.tvlUsd ?? 0)).slice(0, 200);
       const stable = new Map<string, { apr7d: number | null; apr30d: number | null; days: number }>();
-      const BATCH = 12;
-      for (let i = 0; i < ranked.length; i += BATCH) {
-        const slice = ranked.slice(i, i + BATCH);
-        const settled = await Promise.allSettled(slice.map(async (p) => {
-          const series = await fetchPoolSeries(p.pool);
-          const w7 = weightedFeeApr(series, 7);
-          const w30 = weightedFeeApr(series, 30);
-          return { id: p.pool, apr7d: w7?.aprPct ?? null, apr30d: w30?.aprPct ?? null, days: w30?.daysCovered ?? 0 };
-        }));
-        for (const r of settled) {
-          if (r.status === 'fulfilled') {
-            stable.set(r.value.id, { apr7d: r.value.apr7d, apr30d: r.value.apr30d, days: r.value.days });
+
+      const cached = ranked.filter((p) => hasFreshSeries(p.pool));
+      const cold = ranked.filter((p) => !hasFreshSeries(p.pool)).slice(0, 45);
+      const measure = async (p: (typeof ranked)[number]) => {
+        const series = await fetchPoolSeries(p.pool);
+        const w7 = weightedFeeApr(series, 7);
+        const w30 = weightedFeeApr(series, 30);
+        return { id: p.pool, apr7d: w7?.aprPct ?? null, apr30d: w30?.aprPct ?? null, days: w30?.daysCovered ?? 0 };
+      };
+
+      const BATCH = 8;
+      for (const group of [cached, cold]) {
+        for (let i = 0; i < group.length; i += BATCH) {
+          const settled = await Promise.allSettled(group.slice(i, i + BATCH).map(measure));
+          for (const r of settled) {
+            if (r.status === 'fulfilled') {
+              stable.set(r.value.id, { apr7d: r.value.apr7d, apr30d: r.value.apr30d, days: r.value.days });
+            }
           }
         }
       }

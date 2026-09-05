@@ -48,6 +48,11 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     return NextResponse.json(detail, { headers: { 'x-defier-cache': 'miss' } });
   } catch (err) {
     console.error('[pool]', { id, err });
-    return NextResponse.json({ error: 'Could not read this pool on Base right now.' }, { status: 502 });
+    return NextResponse.json({
+      error: 'Could not read this pool on Base right now.',
+      ...(new URL(req.url).searchParams.get('debug') === '1'
+        ? { reason: String((err as Error)?.message || err).slice(0, 300) }
+        : {}),
+    }, { status: 502 });
   }
 }

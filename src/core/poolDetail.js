@@ -66,13 +66,37 @@ export function weightedFeeApr(series, days) {
   return { aprPct: num / den, daysCovered: counted };
 }
 
-/** Daily history from DeFiLlama for one pool id. Null when unavailable. */
+/**
+ * Daily history from DeFiLlama for one pool id. Null when unavailable.
+ *
+ * Cached in process for an hour. A daily series does not change within the hour,
+ * and asking upstream for two hundred of them on every ranking request is how a
+ * screen earns a rate limit and then shows blanks where its own headline figure
+ * should be.
+ */
+const SERIES_TTL_MS = 60 * 60 * 1000;
+const seriesCache = new Map();
+
+export function hasFreshSeries(poolId) {
+  const hit = seriesCache.get(poolId);
+  return !!hit && Date.now() - hit.at < SERIES_TTL_MS;
+}
+
 export async function fetchPoolSeries(poolId) {
+  const hit = seriesCache.get(poolId);
+  if (hit && Date.now() - hit.at < SERIES_TTL_MS) return hit.data;
+
   try {
     const res = await fetch(`https://yields.llama.fi/chart/${poolId}`, { next: { revalidate: 3600 } });
     if (!res.ok) return null;
     const json = await res.json();
-    return Array.isArray(json?.data) ? json.data : null;
+    const data = Array.isArray(json?.data) ? json.data : null;
+    if (data) {
+      seriesCache.set(poolId, { at: Date.now(), data });
+      // Bounded: this runs in a serverless instance with a small memory budget.
+      if (seriesCache.size > 300) seriesCache.delete(seriesCache.keys().next().value);
+    }
+    return data;
   } catch (_) {
     return null;
   }
