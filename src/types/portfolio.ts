@@ -109,8 +109,10 @@ export interface LendingPosition {
   protocol: 'aave-v3';
   supplied: Array<{ token: TokenRef; amount: number; valueUsd: number; isCollateral: boolean }>;
   borrowed: Array<{ token: TokenRef; amount: number; valueUsd: number }>;
-  healthFactor: number | null;
+  healthFactor: number | null;   // null when there is no debt, so the ratio is undefined
   netValueUsd: number;
+  totalCollateralUsd?: number;
+  totalDebtUsd?: number;
 }
 
 export interface ExposureSlice {

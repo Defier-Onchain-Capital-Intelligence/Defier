@@ -19,13 +19,13 @@ import { STOCK_ADDRESSES, BASE_TOKENS, AERODROME_CL_DEPLOYMENTS } from './consta
 import { NFPM_ADDRS, FACTORY_ADDRS } from './constants.js';
 import { getProvider, batchedRequests, withTimeout } from './providers.js';
 import { fetchTokenPrice } from './prices.js';
+import { getStockHoldings } from './stocks.js';
+import { getTokenHoldings } from './tokens.js';
+import { getLendingPositions } from './lending.js';
 
 const CHAIN = 'base';
 
-const PENDING = [
-  'True P&L and the HODL benchmark are not computed yet (Part 2).',
-  'Token balances, tokenized stocks and Aave positions are not included yet (Part 2).',
-];
+
 
 function quote(usd) {
   return Number.isFinite(usd) && usd !== null ? { usd, source: 'llama' } : null;
@@ -96,7 +96,7 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
   /** Only populated when the caller asks. Counts, never secrets. */
   const diag = diagnostics ? { steps: [] } : null;
   const trace = (step, value) => { if (diag) diag.steps.push({ step, value }); };
-  const warnings = [...PENDING];
+  const warnings = [];
   const provider = await getProvider(CHAIN);
 
   // 1. Positions the wallet holds directly.
@@ -251,19 +251,46 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
   const lpNetPnlUsd = withPnl.reduce((a, p) => a + p.pnl.netPnlUsd, 0);
   const lpVsHodlUsd = withPnl.reduce((a, p) => a + p.pnl.lpVsHodlUsd, 0);
 
-  const tokens = [];
-  const lending = [];
+  // Wallet balances, tokenized stocks and lending. Without these, exposure
+  // describes only the deployed half of the wallet and reads as if the rest
+  // did not exist.
+  const positionTokens = positions.flatMap((p) => [p.token0.address, p.token1.address]);
+  const [tokenResult, stockResult, lendingResult] = await Promise.allSettled([
+    getTokenHoldings(wallet, positionTokens),
+    getStockHoldings(wallet),
+    getLendingPositions(wallet),
+  ]);
+
+  const plainTokens = tokenResult.status === 'fulfilled' ? tokenResult.value : [];
+  if (tokenResult.status !== 'fulfilled') warnings.push('Wallet token balances could not be read.');
+
+  const stocks = stockResult.status === 'fulfilled' ? stockResult.value.holdings : [];
+  if (stockResult.status === 'fulfilled') warnings.push(...stockResult.value.notes);
+  else warnings.push('Tokenized stock balances could not be read.');
+
+  const lending = lendingResult.status === 'fulfilled' ? lendingResult.value.positions : [];
+  if (lendingResult.status === 'fulfilled') warnings.push(...lendingResult.value.notes);
+  else warnings.push('Aave positions could not be read.');
+
+  // A tokenized stock held directly must not also appear as a plain token.
+  const stockAddresses = new Set(stocks.map((h) => h.token.address));
+  const tokens = [...plainTokens.filter((h) => !stockAddresses.has(h.token.address)), ...stocks];
+
   const exposure = computeExposure(positions, tokens, lending);
 
   const stakedCount = positions.filter((p) => p.staked).length;
   const closedCount = positions.length - open.length;
 
+  const stocksValueUsd = stocks.reduce((a, h) => a + (h.valueUsd || 0), 0);
+  const tokensValueUsd = plainTokens.reduce((a, h) => a + (h.valueUsd || 0), 0);
+  const lendingNetUsd = lending.reduce((a, l) => a + (l.netValueUsd || 0), 0);
+
   const summary = {
-    totalValueUsd: lpValueUsd,
+    totalValueUsd: lpValueUsd + tokensValueUsd + stocksValueUsd + lendingNetUsd,
     lpValueUsd,
-    tokensValueUsd: 0,
-    stocksValueUsd: 0,
-    lendingNetUsd: 0,
+    tokensValueUsd,
+    stocksValueUsd,
+    lendingNetUsd,
     lpNetPnlUsd,
     lpVsHodlUsd,
     feesTotalUsd,
