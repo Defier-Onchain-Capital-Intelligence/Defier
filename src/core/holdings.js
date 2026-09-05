@@ -22,8 +22,15 @@ const ORDER  = ['ETH', 'BTC', 'STABLE', 'STOCK', 'AERO', 'OTHER'];
 /** Where a line of value lives. Ordered: wallet first, it is the part you can move today. */
 const VENUE_ORDER = { wallet: 0, lp: 1, lending: 2 };
 
+/** Below this a line renders as "$0.0000" and tells the reader nothing. It still
+ *  counts towards the totals — we hide the row, we do not lose the money. */
+const DUST_USD = 0.0001;
+
 function emptyBucket() {
-  return { totalUsd: 0, pctOfPortfolio: 0, walletUsd: 0, inPoolsUsd: 0, lendingUsd: 0, lines: [], byClass: [] };
+  return {
+    totalUsd: 0, pctOfPortfolio: 0, walletUsd: 0, inPoolsUsd: 0, lendingUsd: 0,
+    lines: [], byClass: [], hiddenDustCount: 0,
+  };
 }
 
 /**
@@ -122,12 +129,17 @@ export function computeHoldings(positions, tokens, lending) {
   const stocks = emptyBucket();
   for (const line of lines) {
     const bucket = line.assetClass === 'STOCK' ? stocks : crypto;
-    bucket.lines.push(line);
+    if (Math.abs(line.valueUsd) < DUST_USD) bucket.hiddenDustCount += 1;
+    else bucket.lines.push(line);
     bucket.totalUsd += line.valueUsd;
     if (line.venue === 'wallet') bucket.walletUsd += line.valueUsd;
     else if (line.venue === 'lp') bucket.inPoolsUsd += line.valueUsd;
     else bucket.lendingUsd += line.valueUsd;
   }
+
+  const allByBucket = new Map([[crypto, []], [stocks, []]]);
+  for (const line of lines) allByBucket.get(line.assetClass === 'STOCK' ? stocks : crypto).push(line);
+  const allOf = (bucket) => allByBucket.get(bucket) || [];
 
   const grand = crypto.totalUsd + stocks.totalUsd;
   for (const bucket of [crypto, stocks]) {
@@ -136,7 +148,7 @@ export function computeHoldings(positions, tokens, lending) {
       (VENUE_ORDER[a.venue] - VENUE_ORDER[b.venue]) || (b.valueUsd - a.valueUsd));
 
     const classTotals = new Map();
-    for (const line of bucket.lines) {
+    for (const line of allOf(bucket)) {
       classTotals.set(line.assetClass, (classTotals.get(line.assetClass) || 0) + line.valueUsd);
     }
     bucket.byClass = ORDER

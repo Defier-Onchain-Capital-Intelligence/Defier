@@ -108,7 +108,11 @@ export function Tabs<T extends string>({ value, onChange, options }: {
           className={`tab ${value === o.key ? 'tab-active' : ''}`}
         >
           {o.label}
-          {o.sub ? <span className="ml-1.5 tnum text-ink-muted">{o.sub}</span> : null}
+          {o.sub ? (
+            // On the active tab the ground is accent coloured, so a muted grey
+            // disappears into it.
+            <span className={`ml-1.5 tnum ${value === o.key ? 'opacity-70' : 'text-ink-muted'}`}>{o.sub}</span>
+          ) : null}
         </button>
       ))}
     </div>

@@ -153,6 +153,7 @@ export interface HoldingsBucket {
   lendingUsd: number;
   lines: HoldingLine[];
   byClass: ExposureSlice[];
+  hiddenDustCount: number;      // lines under a hundredth of a cent, counted but not listed
 }
 
 /** The portfolio cut by what it is, not by how much risk it carries.

@@ -62,6 +62,12 @@ export function HoldingsView({ address, initialTab }: { address: string; initial
         <>
           <BucketHeader bucket={bucket} side={tab} />
           <HoldingLines lines={bucket.lines} wallet={address} />
+          {bucket.hiddenDustCount ? (
+            <p className="px-1 text-[0.6875rem] text-ink-muted">
+              {bucket.hiddenDustCount} {bucket.hiddenDustCount === 1 ? 'balance' : 'balances'} too small to
+              show. They are still counted in the total above.
+            </p>
+          ) : null}
         </>
       )}
 
