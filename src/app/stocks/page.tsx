@@ -1,7 +1,6 @@
-import { Suspense } from 'react';
-import { StocksView } from '@/components/StocksView';
-import { Skeleton, EmptyState } from '@/components/ui/Primitives';
+import { redirect } from 'next/navigation';
 
+/** The stocks screen became one half of Holdings. Old links keep working. */
 export const dynamic = 'force-dynamic';
 
 export default async function StocksPage({
@@ -9,13 +8,6 @@ export default async function StocksPage({
 }: { searchParams: Promise<{ wallet?: string }> }) {
   const { wallet } = await searchParams;
   const clean = wallet?.toLowerCase();
-
-  if (!clean || !/^0x[0-9a-f]{40}$/.test(clean)) {
-    return <EmptyState title="No wallet yet" body="Open a wallet from the portfolio screen to see its tokenized stocks." />;
-  }
-  return (
-    <Suspense fallback={<Skeleton className="h-64" />}>
-      <StocksView address={clean} />
-    </Suspense>
-  );
+  const query = clean && /^0x[0-9a-f]{40}$/.test(clean) ? `&wallet=${clean}` : '';
+  redirect(`/holdings?tab=stocks${query}`);
 }

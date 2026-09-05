@@ -129,6 +129,40 @@ export interface Exposure {
   marketBiasPct: number;        // % not in stables
 }
 
+/** One line of "where is my money sitting". Built by core/holdings.js */
+export interface HoldingLine {
+  key: string;
+  venue: 'wallet' | 'lp' | 'lending';
+  symbol: string;
+  assetClass: AssetClass;
+  amount: number | null;
+  unit: 'tokens' | 'shares';
+  valueUsd: number;             // negative for borrowed: you owe it back
+  detail: string;               // "In your wallet", "Inside your WETH/USDC position"
+  positionId: string | null;    // set for lp lines, so the row can link through
+  stale: boolean;               // the price behind this line has not updated recently
+  priceSource: PriceQuote['source'] | null;
+  multiplier: number | null;    // B20 wallet holdings: tokens per share, moves with dividends
+}
+
+export interface HoldingsBucket {
+  totalUsd: number;
+  pctOfPortfolio: number;
+  walletUsd: number;
+  inPoolsUsd: number;
+  lendingUsd: number;
+  lines: HoldingLine[];
+  byClass: ExposureSlice[];
+}
+
+/** The portfolio cut by what it is, not by how much risk it carries.
+ *  Stablecoins count as crypto: dry powder, not a separate asset class. */
+export interface Holdings {
+  crypto: HoldingsBucket;
+  stocks: HoldingsBucket;
+  totalUsd: number;
+}
+
 /** Everything this wallet has ever done with liquidity, for the History view.
  *  Separate from the rollups because these are wallet level facts, not a sum of
  *  what is currently on screen. */
@@ -225,6 +259,8 @@ export interface Portfolio {
   tokens: TokenHolding[];       // includes tokenized stocks (isTokenizedStock)
   lending: LendingPosition[];
   exposure: Exposure;
+  /** The same capital split into a crypto side and a stocks side. */
+  holdings: Holdings;
   /** What the portfolio converts into if the market moves either way. */
   scenarios: Scenarios;
   /** Observations about composition. Never instructions: see core/advisor.js. */

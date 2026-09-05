@@ -8,6 +8,7 @@
  * one who reads to the bottom can check our arithmetic against the chain.
  */
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import type { LpPosition } from '@/types/portfolio';
 import { fetchPosition } from '@/lib/api';
 import { usd, amount, price, pct, toneOf, dateOf, relativeDays } from '@/lib/format';
@@ -61,6 +62,8 @@ export function PositionDetail({ id, wallet }: { id: string; wallet: string }) {
       </Card>
 
       {!pos.closed ? <RangeCard pos={pos} /> : null}
+
+      <SimulateLink pos={pos} />
 
       {pnl ? (
         <Card>
@@ -135,6 +138,41 @@ export function PositionDetail({ id, wallet }: { id: string; wallet: string }) {
         </Card>
       ) : null}
     </div>
+  );
+}
+
+/** Carry this position into the simulator instead of asking the user to retype
+ *  a range they can already see. The APR is the one number we cannot know for
+ *  the future, so it is seeded from what this position has actually realised and
+ *  left for them to change. */
+function SimulateLink({ pos }: { pos: LpPosition }) {
+  const size = pos.closed ? pos.pnl?.initialCapitalUsd : pos.valueUsd;
+  if (!pos.priceLower || !pos.priceUpper || !size) return null;
+
+  const params = new URLSearchParams({
+    entry: String(pos.currentPrice),
+    low: String(pos.priceLower),
+    high: String(pos.priceUpper),
+    size: String(Math.round(size * 100) / 100),
+  });
+  const apr = pos.pnl?.realizedAprPct;
+  if (apr != null && apr > 0) params.set('apr', String(Math.round(apr * 10) / 10));
+
+  return (
+    <Link
+      href={`/simulate?${params.toString()}`}
+      className="block rounded-2xl border border-bg-border bg-bg-surface px-4 py-3.5 transition-colors hover:bg-bg-elevated/50"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium">Test this range against holding</p>
+          <p className="mt-0.5 text-xs text-ink-muted">
+            Opens the simulator with this position&rsquo;s range and size already filled in
+          </p>
+        </div>
+        <span aria-hidden className="text-accent">&rarr;</span>
+      </div>
+    </Link>
   );
 }
 

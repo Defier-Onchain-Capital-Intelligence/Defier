@@ -19,6 +19,17 @@ const CACHE_TTL_MS = 5 * 60 * 1000;
 const cache = new Map<string, { at: number; data: Portfolio }>();
 
 /** Compact view: the answer and the shape of the wallet, without every position's detail. */
+function bucketSummary(b: Portfolio['holdings']['crypto'] | undefined) {
+  if (!b) return null;
+  return {
+    totalUsd: b.totalUsd,
+    pctOfPortfolio: b.pctOfPortfolio,
+    inWalletUsd: b.walletUsd,
+    insideLiquidityUsd: b.inPoolsUsd,
+    inLendingUsd: b.lendingUsd,
+  };
+}
+
 function shape(portfolio: Portfolio, compact: boolean) {
   if (!compact) return portfolio;
   return {
@@ -27,6 +38,11 @@ function shape(portfolio: Portfolio, compact: boolean) {
     generatedAt: portfolio.generatedAt,
     summary: portfolio.summary,
     exposure: portfolio.exposure,
+    // Totals only. The agent needs to know the shape of the split, not every line.
+    holdings: {
+      crypto: bucketSummary(portfolio.holdings?.crypto),
+      stocks: bucketSummary(portfolio.holdings?.stocks),
+    },
     scenarios: portfolio.scenarios,
     tokens: portfolio.tokens.map((h) => ({
       symbol: h.token.symbol,

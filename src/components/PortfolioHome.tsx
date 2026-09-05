@@ -110,6 +110,24 @@ export function PortfolioHome({ address }: { address: string }) {
         </Card>
       ) : null}
 
+      {data.holdings?.stocks?.totalUsd ? (
+        // Only worth the space once both sides exist. With no stocks, "crypto"
+        // is just another word for the total and the card says nothing.
+        <div className="grid grid-cols-2 gap-3">
+          {([['crypto', 'Crypto', data.holdings.crypto], ['stocks', 'Stocks', data.holdings.stocks]] as const).map(
+            ([key, label, bucket]) => (
+              <Link key={key} href={`/holdings?wallet=${address}&tab=${key}`}>
+                <Card className="h-full transition-colors hover:bg-bg-elevated/40">
+                  <Label>{label}</Label>
+                  <p className="mt-1 font-semibold tnum">{usd(bucket.totalUsd)}</p>
+                  <p className="mt-0.5 text-xs text-ink-muted tnum">{bucket.pctOfPortfolio.toFixed(0)}% of the total</p>
+                </Card>
+              </Link>
+            ),
+          )}
+        </div>
+      ) : null}
+
       {data.scenarios ? <ScenarioCard scenarios={data.scenarios} /> : null}
 
       <Card>

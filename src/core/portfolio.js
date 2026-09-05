@@ -14,6 +14,7 @@ import { scanWalletPositions, _enrichPosition } from './scanner.js';
 import { getStakedTokenIds, getWalletTokenIdsFromLogs, getPositionHistory, getPendingRewards } from './history.js';
 import { computeExposure, classify } from './exposure.js';
 import { computeScenarios } from './scenarios.js';
+import { computeHoldings } from './holdings.js';
 import { observe } from './advisor.js';
 import { computePositionPnl, headlineFor } from './pnl.js';
 import { tickToPrice } from './math.js';
@@ -317,6 +318,7 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
 
   const exposure = computeExposure(positions, tokens, lending);
   const scenarios = computeScenarios(positions, tokens);
+  const holdings = computeHoldings(positions, tokens, lending);
 
   const stakedCount = positions.filter((p) => p.staked).length;
   const closedCount = positions.length - open.length;
@@ -377,6 +379,7 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
     tokens,
     lending,
     exposure,
+    holdings,
     scenarios,
     warnings,
     ...(diag ? { diagnostics: diag } : {}),

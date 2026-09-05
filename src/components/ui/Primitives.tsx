@@ -91,6 +91,30 @@ export function ConfidenceNote({ confidence, notes }: {
   );
 }
 
+/** A segmented control. One row of choices, never a dropdown: the options are
+ *  part of the reading, not hidden behind a click. */
+export function Tabs<T extends string>({ value, onChange, options }: {
+  value: T;
+  onChange: (next: T) => void;
+  options: Array<{ key: T; label: string; sub?: string }>;
+}) {
+  return (
+    <div className="flex gap-1 rounded-xl border border-bg-border bg-bg-surface p-1">
+      {options.map((o) => (
+        <button
+          key={o.key}
+          type="button"
+          onClick={() => onChange(o.key)}
+          className={`tab ${value === o.key ? 'tab-active' : ''}`}
+        >
+          {o.label}
+          {o.sub ? <span className="ml-1.5 tnum text-ink-muted">{o.sub}</span> : null}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function Skeleton({ className = '' }: { className?: string }) {
   return <div className={`animate-pulse rounded-lg bg-bg-elevated ${className}`} />;
 }

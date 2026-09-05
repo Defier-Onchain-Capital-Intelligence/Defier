@@ -135,7 +135,7 @@ export function observe(portfolio) {
 
 /** Portfolio facts an agent can quote without re-deriving anything. */
 export function portfolioFacts(portfolio) {
-  const { summary, exposure, positions, scenarios } = portfolio;
+  const { summary, exposure, positions, scenarios, holdings } = portfolio;
   const open = (positions || []).filter((p) => !p.closed);
   return {
     address: portfolio.address,
@@ -159,6 +159,13 @@ export function portfolioFacts(portfolio) {
     headlineAboutOpenPositionsOnly: summary?.headline ?? null,
     headlineAboutAllTimeIncludingClosed: summary?.historyHeadline ?? null,
     exposureByClass: exposure?.byClass ?? [],
+    // The same capital cut by what it is. Stablecoins count as crypto.
+    cryptoSideUsd: holdings?.crypto?.totalUsd ?? null,
+    stocksSideUsd: holdings?.stocks?.totalUsd ?? null,
+    cryptoSidePctOfPortfolio: holdings?.crypto?.pctOfPortfolio ?? null,
+    stocksSidePctOfPortfolio: holdings?.stocks?.pctOfPortfolio ?? null,
+    stocksHeldInWalletUsd: holdings?.stocks?.walletUsd ?? null,
+    stocksInsideLiquidityUsd: holdings?.stocks?.inPoolsUsd ?? null,
     marketBiasPct: exposure?.marketBiasPct ?? null,
     ifMarketRises: scenarios?.up?.holdings?.slice(0, 4) ?? [],
     ifMarketFalls: scenarios?.down?.holdings?.slice(0, 4) ?? [],
