@@ -61,6 +61,25 @@ export interface PositionPnl {
   notes: string[];              // what was missing when confidence = partial
 }
 
+/** One of the four things you could have done with the same deposit. */
+export interface StrategyOption {
+  key: 'lp' | 'hold-both' | 'all-token0' | 'all-token1';
+  label: string;
+  valueUsd: number;
+  pnlUsd: number;
+  pnlPct: number;
+  detail: string;
+  isBest?: boolean;
+}
+
+export interface StrategyComparison {
+  capitalUsd: number;
+  options: StrategyOption[];
+  bestKey: StrategyOption['key'];
+  lpWon: boolean;
+  lpVsBestUsd: number | null;
+}
+
 export interface LpPosition {
   id: string;                   // `${protocol}:${tokenId}`
   protocol: 'aerodrome' | 'uniswap-v3';
@@ -90,6 +109,8 @@ export interface LpPosition {
   openedAt: number | null;      // unix seconds of mint
   events: PositionEvent[];
   pnl: PositionPnl | null;
+  /** The same deposit under four choices, all valued today. Replaces breakeven prices. */
+  strategies: StrategyComparison | null;
   /** Reconstruction quality of THIS position, independent of the P&L block.
    *  Rule 5 of the handoff: if something could not be resolved, the product says so. */
   confidence: Confidence;

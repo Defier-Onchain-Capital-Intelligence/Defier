@@ -1,4 +1,5 @@
 /** Small building blocks shared by every screen. Presentational only. */
+import Link from 'next/link';
 import { toneOf, usd } from '@/lib/format';
 
 export function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
@@ -116,6 +117,16 @@ export function Tabs<T extends string>({ value, onChange, options }: {
         </button>
       ))}
     </div>
+  );
+}
+
+/** A way back that does not cost a trip through the bottom bar. */
+export function BackLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <Link href={href} className="inline-flex items-center gap-1.5 text-xs text-ink-muted transition-colors hover:text-ink-secondary">
+      <span aria-hidden>&larr;</span>
+      {children}
+    </Link>
   );
 }
 

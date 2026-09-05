@@ -3,6 +3,7 @@ import { rateLimit } from '@/lib/rateLimit';
 import { buildPortfolio } from '@/core/portfolio.js';
 import { getPositionHistory } from '@/core/history.js';
 import { computePositionPnl } from '@/core/pnl.js';
+import { compareStrategies } from '@/core/strategies.js';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -64,8 +65,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       confidence: history.confidence,
       notes: history.notes,
       pnl: null as ReturnType<typeof computePositionPnl> | null,
+      strategies: null as ReturnType<typeof compareStrategies> | null,
     };
     data.pnl = history.events.length > 0 ? computePositionPnl(data) : null;
+    data.strategies = data.pnl ? compareStrategies(data) : null;
 
     cache.set(cacheKey, { at: Date.now(), data });
     return NextResponse.json(data, { headers: { 'x-defier-cache': 'miss' } });

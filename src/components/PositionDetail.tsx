@@ -12,7 +12,9 @@ import Link from 'next/link';
 import type { LpPosition } from '@/types/portfolio';
 import { fetchPosition } from '@/lib/api';
 import { usd, amount, price, pct, toneOf, dateOf, relativeDays } from '@/lib/format';
-import { Card, Label, Skeleton, EmptyState, StatusPill, ConfidenceNote } from '@/components/ui/Primitives';
+import { Card, Label, Skeleton, EmptyState, StatusPill, ConfidenceNote, BackLink } from '@/components/ui/Primitives';
+import { InfoDot } from '@/components/ui/InfoDot';
+import { StrategyTable } from '@/components/StrategyTable';
 
 export function PositionDetail({ id, wallet }: { id: string; wallet: string }) {
   const [pos, setPos] = useState<LpPosition | null>(null);
@@ -35,6 +37,8 @@ export function PositionDetail({ id, wallet }: { id: string; wallet: string }) {
 
   return (
     <div className="space-y-4">
+      <BackLink href={`/positions?wallet=${wallet}`}>All positions</BackLink>
+
       <header>
         <h1 className="text-lg font-semibold">{pos.symbol}</h1>
         <div className="mt-1.5 flex items-center gap-2">
@@ -55,13 +59,30 @@ export function PositionDetail({ id, wallet }: { id: string; wallet: string }) {
         ) : null}
         {pnl?.daysOpen ? (
           <p className="mt-1 text-xs text-ink-muted">
-            Opened {dateOf(pos.openedAt)} · {relativeDays(pnl.daysOpen)}
-            {pnl.realizedAprPct != null ? ` · ${pct(pnl.realizedAprPct)} realised APR` : ''}
+            Opened {dateOf(pos.openedAt)} · open {relativeDays(pnl.daysOpen)}
           </p>
+        ) : null}
+
+        {pnl?.realizedAprPct != null ? (
+          // Not a projection and not the pool's advertised rate: what this
+          // position has actually paid, annualised. It deserves the room.
+          <div className="mt-4 flex items-baseline justify-between gap-3 rounded-xl bg-bg-elevated px-3 py-2.5">
+            <span className="text-xs text-ink-secondary">
+              Real APR
+              <InfoDot label="Real APR">
+                Fees and rewards this position has actually earned, over the capital you put in,
+                annualised across the {relativeDays(pnl.daysOpen)} it has been open. Not the pool&rsquo;s
+                advertised rate and not a forecast.
+              </InfoDot>
+            </span>
+            <span className="text-lg font-semibold tnum text-gain">{pct(pnl.realizedAprPct)}</span>
+          </div>
         ) : null}
       </Card>
 
       {!pos.closed ? <RangeCard pos={pos} /> : null}
+
+      {pos.strategies ? <StrategyTable strategies={pos.strategies} /> : null}
 
       <SimulateLink pos={pos} />
 
@@ -72,10 +93,16 @@ export function PositionDetail({ id, wallet }: { id: string; wallet: string }) {
             <Line label="Capital deposited" value={usd(pnl.initialCapitalUsd)} note="at the price of each deposit" />
             <Line label="Withdrawn" value={usd(pnl.withdrawnUsd)} />
             <Line label="Value in the position" value={usd(pnl.currentValueUsd)} />
-            <Line label="Fees collected" value={usd(pnl.feesClaimedUsd)} tone="text-gain" />
-            <Line label="Fees not yet collected" value={usd(pnl.feesUnclaimedUsd)} tone="text-gain" />
-            <Line label="Rewards claimed" value={usd(pnl.incentivesClaimedUsd)} tone="text-gain" />
-            <Line label="Rewards pending" value={usd(pnl.incentivesPendingUsd)} tone="text-gain" />
+            <Line label="Fees collected" value={usd(pnl.feesClaimedUsd)} tone="text-gain"
+                  info={`Trading fees you have already taken out, in ${symbol0} and ${symbol1}, valued at the price of the day you collected them.`} />
+            <Line label="Fees not yet collected" value={usd(pnl.feesUnclaimedUsd)} tone="text-gain"
+                  info={`Still sitting in the position: ${amount(pos.feesUnclaimed.token0)} ${symbol0} and ${amount(pos.feesUnclaimed.token1)} ${symbol1}. Read exactly from the pool, not estimated.`} />
+            <Line label="Rewards claimed" value={usd(pnl.incentivesClaimedUsd)} tone="text-gain"
+                  info="AERO emissions you have already claimed from the gauge, valued at the price of the day you claimed." />
+            <Line label="Rewards pending" value={usd(pnl.incentivesPendingUsd)} tone="text-gain"
+                  info={pos.incentivesPending
+                    ? `${amount(pos.incentivesPending.amount)} AERO earned and not yet claimed.`
+                    : 'Emissions earned and not yet claimed. Only staked positions accrue these.'} />
             <Line label="Gas paid" value={usd(pnl.gasUsd)} tone="text-loss" />
             <Line label="Divergence from holding" value={usd(pnl.divergenceUsd, { sign: true })} tone={toneOf(pnl.divergenceUsd)}
                   note="what concentrated liquidity cost or gained you" />
@@ -88,16 +115,7 @@ export function PositionDetail({ id, wallet }: { id: string; wallet: string }) {
               <dd className={`font-semibold tnum ${toneOf(pnl.hodlPnlUsd)}`}>{usd(pnl.hodlPnlUsd, { sign: true })}</dd>
             </div>
           </dl>
-          {pnl.breakevenPrices?.upper ? (
-            <p className="mt-3 rounded-xl bg-bg-elevated p-3 text-xs leading-relaxed text-ink-secondary">
-              {/* Solved from today's price forward, not from the entry price. Said
-                  plainly, because unqualified it reads as a verdict on the past. */}
-              From here, this position keeps beating holding while {symbol0} trades between{' '}
-              <span className="tnum text-ink-primary">{price(pnl.breakevenPrices.lower)}</span> and{' '}
-              <span className="tnum text-ink-primary">{price(pnl.breakevenPrices.upper)}</span> {symbol1},
-              assuming fees keep accruing at the rate they have so far.
-            </p>
-          ) : null}
+
         </Card>
       ) : null}
 
@@ -179,11 +197,14 @@ function SimulateLink({ pos }: { pos: LpPosition }) {
   );
 }
 
-function Line({ label, value, tone, note }: { label: string; value: string; tone?: string; note?: string }) {
+function Line({ label, value, tone, note, info }: {
+  label: string; value: string; tone?: string; note?: string; info?: string;
+}) {
   return (
     <div className="row">
       <dt className="text-sm text-ink-secondary">
         {label}
+        {info ? <InfoDot label={label}>{info}</InfoDot> : null}
         {note ? <span className="block text-[0.6875rem] text-ink-muted">{note}</span> : null}
       </dt>
       <dd className={`tnum text-sm ${tone ?? 'text-ink-primary'}`}>{value}</dd>

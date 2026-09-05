@@ -1,28 +1,32 @@
 import { NextResponse } from 'next/server';
 import { rateLimit } from '@/lib/rateLimit';
+import { getBasePools } from '@/lib/llamaPools';
 import { STOCK_ADDRESSES, TOKENIZED_STOCKS } from '@/core/constants.base.js';
+import { classifyRisk, getPoolFeeDec } from '@/core/pools.js';
+import { poolVariantLabel } from '@/core/poolDetail.js';
 
 export const dynamic = 'force-dynamic';
 
 const TTL_MS = 10 * 60 * 1000;
 let cache: { at: number; data: unknown } | null = null;
 
-type LlamaPool = {
-  pool: string; chain: string; project: string; symbol: string;
-  tvlUsd: number; apy: number | null; apyBase: number | null; apyReward: number | null;
-  apyBase7d: number | null; apyMean30d: number | null;
-  volumeUsd1d: number | null; underlyingTokens: string[] | null; poolMeta: string | null;
-};
-
 const STOCK_SYMBOLS = Object.keys(TOKENIZED_STOCKS);
 
 /**
  * GET /api/pools?stocks=1
  *
- * Aerodrome and Uniswap V3 pools on Base, with the comparison that matters:
- * the advertised APY next to its own thirty day average. A pool showing 400%
- * today and 12% over the month is not a 400% pool, and the single number every
- * other interface prints is the reason people chase them.
+ * The ranking. Two decisions worth stating.
+ *
+ * The stable column is DeFiLlama's `apyBase7d`: seven days of fees annualised
+ * over the pool's TVL. It is NOT `apyMean30d`, which is the arithmetic mean of
+ * the daily APY and which a single day of thin TVL blows to four digits — we
+ * measured 1461% on a pool trading at 109% today. An average that a bad day can
+ * hijack is worse than no average, so it does not appear here. The pool screen
+ * computes a TVL weighted mean instead, which is the honest version.
+ *
+ * Every APR here is the FULL RANGE APR: all the fees over all the liquidity. It
+ * is the floor, and the only number that compares two pools fairly. What a
+ * concentrated range multiplies it by is decided on the pool screen.
  */
 export async function GET(req: Request) {
   const { limited } = rateLimit(req, { max: 30, windowMs: 60_000, prefix: 'pools' });
@@ -32,33 +36,31 @@ export async function GET(req: Request) {
 
   try {
     if (!cache || Date.now() - cache.at > TTL_MS) {
-      const res = await fetch('https://yields.llama.fi/pools', { next: { revalidate: 600 } });
-      if (!res.ok) throw new Error(`yields ${res.status}`);
-      const json = await res.json();
+      const raw = await getBasePools();
 
-      const pools = (json.data as LlamaPool[])
-        .filter((p) => p.chain === 'Base')
-        .filter((p) => p.project === 'aerodrome-slipstream' || p.project === 'aerodrome-v1'
-                    || p.project === 'uniswap-v3')
-        .filter((p) => (p.tvlUsd ?? 0) > 25_000)
+      const pools = raw
         .map((p) => {
           const tokens = (p.underlyingTokens || []).map((t) => t.toLowerCase());
           const hasStock = tokens.some((t) => STOCK_ADDRESSES.has(t))
             || STOCK_SYMBOLS.some((s) => p.symbol?.toUpperCase().includes(s.toUpperCase()));
+          const feeDec = getPoolFeeDec(p);
           return {
             id: p.pool,
             symbol: p.symbol,
+            // Aerodrome runs several pools per pair, one per tick spacing. Without
+            // this they are four identical rows and the ranking is unreadable.
+            variant: poolVariantLabel(p),
             project: p.project,
+            risk: classifyRisk(p),
+            feePct: feeDec != null ? feeDec * 100 : null,
             tvlUsd: p.tvlUsd ?? 0,
             volumeUsd1d: p.volumeUsd1d ?? null,
+            volumeOverTvl: p.tvlUsd > 0 && p.volumeUsd1d ? p.volumeUsd1d / p.tvlUsd : null,
             apy: p.apy ?? null,
             apyBase: p.apyBase ?? null,
             apyReward: p.apyReward ?? null,
-            apy7d: p.apyBase7d ?? null,
-            apy30d: p.apyMean30d ?? null,
-            // How far today's headline number sits from its own monthly average.
-            // Positive means today is flattering the pool.
-            apySpreadPct: p.apy != null && p.apyMean30d != null ? p.apy - p.apyMean30d : null,
+            /** Seven days of fees, annualised. The stable figure of the ranking. */
+            feeApr7d: p.apyBase7d ?? null,
             hasStock,
             tokens,
           };

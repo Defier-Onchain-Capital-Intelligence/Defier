@@ -17,6 +17,7 @@ import { computeScenarios } from './scenarios.js';
 import { computeHoldings } from './holdings.js';
 import { observe } from './advisor.js';
 import { computePositionPnl, headlineFor } from './pnl.js';
+import { compareStrategies } from './strategies.js';
 import { tickToPrice } from './math.js';
 import { STOCK_ADDRESSES, BASE_TOKENS, AERODROME_CL_DEPLOYMENTS } from './constants.base.js';
 import { NFPM_ADDRS, FACTORY_ADDRS } from './constants.js';
@@ -240,7 +241,10 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
 
     // P&L needs the event history. Without it we report null rather than a
     // number built on assumptions.
-    if (position.events.length > 0) position.pnl = computePositionPnl(position);
+    if (position.events.length > 0) {
+      position.pnl = computePositionPnl(position);
+      position.strategies = compareStrategies(position);
+    }
     return position;
   }, 3, 100);
 
