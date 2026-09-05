@@ -1,0 +1,10 @@
+# Supabase project config. Present so the GitHub integration recognises this
+# directory as a Supabase project and can find supabase/migrations.
+#
+# Note: migrations are applied manually through the SQL editor for now. A
+# migration that runs itself against production on every push is exactly the
+# kind of automation worth reviewing before it touches real user data.
+project_id = "kmnszsrpsuddmmestsub"
+
+[db]
+major_version = 15

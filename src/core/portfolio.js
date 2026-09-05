@@ -246,10 +246,25 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
   const feesTotalUsd = open.reduce((a, p) => a + (p.feesUnclaimed.usd || 0), 0);
   const incentivesTotalUsd = positions.reduce((a, p) => a + (p.incentivesPending?.usd || 0), 0);
 
-  // Closed positions count towards P&L: money made and lost is money made and lost.
+  // Two aggregations, kept apart on purpose. A position closed a year ago is
+  // real history and belongs in the total, but it must not describe what the
+  // wallet is doing today.
+  const rollup = (subset) => ({
+    positions: subset.length,
+    valueUsd: subset.reduce((a, p) => a + (p.valueUsd || 0), 0),
+    netPnlUsd: subset.reduce((a, p) => a + (p.pnl?.netPnlUsd || 0), 0),
+    lpVsHodlUsd: subset.reduce((a, p) => a + (p.pnl?.lpVsHodlUsd || 0), 0),
+    feesUsd: subset.reduce((a, p) => a + (p.feesUnclaimed?.usd || 0)
+      + (p.pnl?.feesClaimedUsd || 0), 0),
+    incentivesUsd: subset.reduce((a, p) => a + (p.incentivesPending?.usd || 0)
+      + (p.pnl?.incentivesClaimedUsd || 0), 0),
+  });
+
   const withPnl = positions.filter((p) => p.pnl);
-  const lpNetPnlUsd = withPnl.reduce((a, p) => a + p.pnl.netPnlUsd, 0);
-  const lpVsHodlUsd = withPnl.reduce((a, p) => a + p.pnl.lpVsHodlUsd, 0);
+  const openRollup = rollup(open);
+  const allTimeRollup = rollup(positions);
+  const lpNetPnlUsd = allTimeRollup.netPnlUsd;
+  const lpVsHodlUsd = allTimeRollup.lpVsHodlUsd;
 
   // Wallet balances, tokenized stocks and lending. Without these, exposure
   // describes only the deployed half of the wallet and reads as if the rest
@@ -295,19 +310,36 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
     lpVsHodlUsd,
     feesTotalUsd,
     incentivesTotalUsd,
+    open: openRollup,
+    allTime: allTimeRollup,
     headline: '',
+    historyHeadline: null,
     confidence: positions.length && positions.every((p) => p.confidence === 'full') ? 'full' : 'partial',
   };
 
-  // The engine writes the sentence, not the UI. First the answer, then the detail.
-  if (withPnl.length > 0) {
-    summary.headline = headlineFor(summary);
+  // The engine writes the sentences, not the UI. The headline is about what is
+  // still deployed; the history line only appears when there is history.
+  const openHasPnl = open.some((p) => p.pnl);
+  if (openHasPnl) {
+    summary.headline = headlineFor({
+      lpVsHodlUsd: openRollup.lpVsHodlUsd,
+      lpNetPnlUsd: openRollup.netPnlUsd,
+      lpValueUsd: openRollup.valueUsd,
+    });
   } else {
     const parts = [];
     if (open.length) parts.push(`${open.length} open ${open.length === 1 ? 'position' : 'positions'} worth $${lpValueUsd.toFixed(2)}`);
     if (stakedCount) parts.push(`${stakedCount} staked in a gauge`);
     if (closedCount) parts.push(`${closedCount} closed`);
     summary.headline = parts.length ? parts.join(', ') : 'No liquidity positions found on Base';
+  }
+
+  if (closedCount > 0 && withPnl.length > 0) {
+    summary.historyHeadline = `Since you started: ${headlineFor({
+      lpVsHodlUsd: allTimeRollup.lpVsHodlUsd,
+      lpNetPnlUsd: allTimeRollup.netPnlUsd,
+      lpValueUsd: allTimeRollup.valueUsd,
+    }).replace(/^You /, 'you ')}`;
   }
 
   return {

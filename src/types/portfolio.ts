@@ -129,6 +129,16 @@ export interface Exposure {
   marketBiasPct: number;        // % not in stables
 }
 
+/** One aggregation of P&L over a set of positions. */
+export interface PnlRollup {
+  positions: number;
+  valueUsd: number;
+  netPnlUsd: number;
+  lpVsHodlUsd: number;
+  feesUsd: number;
+  incentivesUsd: number;
+}
+
 export interface PortfolioSummary {
   totalValueUsd: number;
   lpValueUsd: number;
@@ -139,7 +149,15 @@ export interface PortfolioSummary {
   lpVsHodlUsd: number;          // sum of lpVsHodlUsd
   feesTotalUsd: number;
   incentivesTotalUsd: number;
-  headline: string;             // "You're $412 behind HODL" (engine-generated, not UI)
+  /** Positions still deployed. This is what the home screen leads with, because
+   *  it is the only part the user can still act on. */
+  open: PnlRollup;
+  /** Everything this wallet has ever done, closed positions included. The more
+   *  interesting number, but it belongs in its own card and not in the headline:
+   *  a trade from a year ago should not describe today. */
+  allTime: PnlRollup;
+  headline: string;             // about open positions, engine-generated
+  historyHeadline: string | null; // about all time, null when nothing is closed
   confidence: Confidence;
 }
 
