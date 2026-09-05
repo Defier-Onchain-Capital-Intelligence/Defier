@@ -16,6 +16,36 @@ const CACHE_TTL_MS = 5 * 60 * 1000;
  */
 const cache = new Map<string, { at: number; data: Portfolio }>();
 
+/** Compact view: the answer and the shape of the wallet, without every position's detail. */
+function shape(portfolio: Portfolio, compact: boolean) {
+  if (!compact) return portfolio;
+  return {
+    address: portfolio.address,
+    chain: portfolio.chain,
+    generatedAt: portfolio.generatedAt,
+    summary: portfolio.summary,
+    exposure: portfolio.exposure,
+    tokens: portfolio.tokens.map((h) => ({
+      symbol: h.token.symbol,
+      isTokenizedStock: h.token.isTokenizedStock ?? false,
+      balance: h.balance,
+      scaledBalance: h.scaledBalance,
+      multiplier: h.multiplier,
+      priceSource: h.price?.source ?? null,
+      stalePrice: h.price?.stale ?? false,
+      valueUsd: h.valueUsd,
+    })),
+    lending: portfolio.lending,
+    positions: portfolio.positions.map((p) => ({
+      id: p.id, symbol: p.symbol, staked: p.staked, closed: p.closed,
+      inRange: p.inRange, valueUsd: p.valueUsd,
+      lpVsHodlUsd: p.pnl?.lpVsHodlUsd ?? null,
+      confidence: p.confidence,
+    })),
+    warnings: portfolio.warnings,
+  };
+}
+
 export async function GET(req: Request, { params }: { params: Promise<{ address: string }> }) {
   const { address: rawAddress } = await params;
   const address = rawAddress?.toLowerCase();
@@ -34,10 +64,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ address:
   // Full event history for every position at once. Slow by nature, so it is never
   // the default: the UI loads a position's history when that position is opened.
   const deep = search.get('deep') === '1';
+  // Summary, exposure and warnings without the per position detail. The home
+  // screen shows the answer before the breakdown, and this is that payload.
+  const compact = search.get('view') === 'compact';
 
   const hit = cache.get(address);
   if (!debug && !deep && hit && Date.now() - hit.at < CACHE_TTL_MS) {
-    return NextResponse.json(hit.data, { headers: { 'x-defier-cache': 'hit' } });
+    return NextResponse.json(shape(hit.data, compact), { headers: { 'x-defier-cache': 'hit' } });
   }
 
   try {
