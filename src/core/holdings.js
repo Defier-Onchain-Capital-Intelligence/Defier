@@ -29,7 +29,7 @@ const DUST_USD = 0.0001;
 function emptyBucket() {
   return {
     totalUsd: 0, pctOfPortfolio: 0, walletUsd: 0, inPoolsUsd: 0, lendingUsd: 0,
-    lines: [], byClass: [], hiddenDustCount: 0,
+    lines: [], byClass: [], hiddenDustCount: 0, earningUsd: 0, idleUsd: 0,
   };
 }
 
@@ -57,6 +57,7 @@ export function computeHoldings(positions, tokens, lending) {
       valueUsd,
       detail: 'In your wallet',
       positionId: null,
+      earning: false,
       stale: t.price?.stale === true,
       priceSource: t.price?.source ?? null,
       multiplier: Number.isFinite(t.multiplier) ? t.multiplier : null,
@@ -65,6 +66,35 @@ export function computeHoldings(positions, tokens, lending) {
 
   for (const p of positions || []) {
     if (p.closed || !p.currentAmounts) continue;
+
+    // What this position has actually paid, all of it, whether it has been
+    // collected or not. This is the number the row leads with, because how many
+    // tokens of one side happen to be sitting in the pool right now is a
+    // consequence of the price, not something anyone decides on.
+    const feesClaimedUsd = p.pnl?.feesClaimedUsd || 0;
+    const feesUnclaimedUsd = p.feesUnclaimed?.usd || 0;
+    const rewardsClaimedUsd = p.pnl?.incentivesClaimedUsd || 0;
+    const rewardsPendingUsd = p.incentivesPending?.usd || 0;
+    const earnedUsd = feesClaimedUsd + feesUnclaimedUsd + rewardsClaimedUsd + rewardsPendingUsd;
+
+    const position = {
+      id: p.id,
+      symbol: p.symbol,
+      inRange: p.inRange,
+      staked: p.staked,
+      valueUsd: p.valueUsd ?? null,
+      realAprPct: p.pnl?.realizedAprPct ?? null,
+      earnedUsd,
+      earned: {
+        feesClaimedUsd, feesUnclaimedUsd, rewardsClaimedUsd, rewardsPendingUsd,
+        feesToken0: p.feesUnclaimed?.token0 ?? 0,
+        feesToken1: p.feesUnclaimed?.token1 ?? 0,
+        symbol0: p.token0?.symbol || '???',
+        symbol1: p.token1?.symbol || '???',
+        rewardsPendingAmount: p.incentivesPending?.amount ?? null,
+      },
+    };
+
     for (const side of ['token0', 'token1']) {
       const token = p[side];
       const amt = Number(p.currentAmounts[side]);
@@ -81,6 +111,8 @@ export function computeHoldings(positions, tokens, lending) {
         valueUsd,
         detail: `Inside your ${p.symbol} position`,
         positionId: p.id,
+        earning: true,
+        position,
         stale: p.prices?.[side]?.stale === true,
         priceSource: p.prices?.[side]?.source ?? null,
         multiplier: null,
@@ -101,6 +133,7 @@ export function computeHoldings(positions, tokens, lending) {
         valueUsd: s.valueUsd,
         detail: `Supplied to ${l.protocol === 'aave-v3' ? 'Aave' : l.protocol}`,
         positionId: null,
+        earning: true,
         stale: false,
         priceSource: null,
         multiplier: null,
@@ -118,6 +151,7 @@ export function computeHoldings(positions, tokens, lending) {
         valueUsd: -b.valueUsd,          // debt is negative: you owe it back
         detail: `Borrowed from ${l.protocol === 'aave-v3' ? 'Aave' : l.protocol}`,
         positionId: null,
+        earning: false,
         stale: false,
         priceSource: null,
         multiplier: null,
@@ -132,6 +166,8 @@ export function computeHoldings(positions, tokens, lending) {
     if (Math.abs(line.valueUsd) < DUST_USD) bucket.hiddenDustCount += 1;
     else bucket.lines.push(line);
     bucket.totalUsd += line.valueUsd;
+    if (line.earning) bucket.earningUsd += line.valueUsd;
+    else bucket.idleUsd += line.valueUsd;
     if (line.venue === 'wallet') bucket.walletUsd += line.valueUsd;
     else if (line.venue === 'lp') bucket.inPoolsUsd += line.valueUsd;
     else bucket.lendingUsd += line.valueUsd;
@@ -161,5 +197,27 @@ export function computeHoldings(positions, tokens, lending) {
       }));
   }
 
-  return { crypto, stocks, totalUsd: grand };
+  // "All assets" is not a third calculation, it is the two buckets read
+  // together. Building it here keeps the UI from summing money.
+  const all = emptyBucket();
+  all.lines = [...crypto.lines, ...stocks.lines]
+    .sort((a, b) => (VENUE_ORDER[a.venue] - VENUE_ORDER[b.venue]) || (b.valueUsd - a.valueUsd));
+  all.totalUsd = grand;
+  all.pctOfPortfolio = grand > 0 ? 100 : 0;
+  all.walletUsd = crypto.walletUsd + stocks.walletUsd;
+  all.inPoolsUsd = crypto.inPoolsUsd + stocks.inPoolsUsd;
+  all.lendingUsd = crypto.lendingUsd + stocks.lendingUsd;
+  all.earningUsd = crypto.earningUsd + stocks.earningUsd;
+  all.idleUsd = crypto.idleUsd + stocks.idleUsd;
+  all.hiddenDustCount = crypto.hiddenDustCount + stocks.hiddenDustCount;
+  {
+    const totals = new Map();
+    for (const line of lines) totals.set(line.assetClass, (totals.get(line.assetClass) || 0) + line.valueUsd);
+    all.byClass = ORDER.filter((c) => totals.has(c)).map((c) => ({
+      assetClass: c, label: LABELS[c], valueUsd: totals.get(c),
+      pct: grand > 0 ? (totals.get(c) / grand) * 100 : 0,
+    }));
+  }
+
+  return { all, crypto, stocks, totalUsd: grand };
 }

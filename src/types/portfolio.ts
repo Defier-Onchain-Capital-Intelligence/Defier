@@ -161,6 +161,29 @@ export interface HoldingLine {
   valueUsd: number;             // negative for borrowed: you owe it back
   detail: string;               // "In your wallet", "Inside your WETH/USDC position"
   positionId: string | null;    // set for lp lines, so the row can link through
+  /** Whether this money is being paid anything where it sits. */
+  earning: boolean;
+  /** Present on lp lines: the position the money is inside, and what it pays. */
+  position?: {
+    id: string;
+    symbol: string;
+    inRange: boolean;
+    staked: boolean;
+    valueUsd: number | null;
+    realAprPct: number | null;
+    earnedUsd: number;
+    earned: {
+      feesClaimedUsd: number;
+      feesUnclaimedUsd: number;
+      rewardsClaimedUsd: number;
+      rewardsPendingUsd: number;
+      feesToken0: number;
+      feesToken1: number;
+      symbol0: string;
+      symbol1: string;
+      rewardsPendingAmount: number | null;
+    };
+  };
   stale: boolean;               // the price behind this line has not updated recently
   priceSource: PriceQuote['source'] | null;
   multiplier: number | null;    // B20 wallet holdings: tokens per share, moves with dividends
@@ -175,11 +198,14 @@ export interface HoldingsBucket {
   lines: HoldingLine[];
   byClass: ExposureSlice[];
   hiddenDustCount: number;      // lines under a hundredth of a cent, counted but not listed
+  earningUsd: number;           // deployed somewhere that pays
+  idleUsd: number;              // sitting still
 }
 
 /** The portfolio cut by what it is, not by how much risk it carries.
  *  Stablecoins count as crypto: dry powder, not a separate asset class. */
 export interface Holdings {
+  all: HoldingsBucket;
   crypto: HoldingsBucket;
   stocks: HoldingsBucket;
   totalUsd: number;

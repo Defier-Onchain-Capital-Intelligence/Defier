@@ -6,10 +6,9 @@
  * what that capital did against simply holding the same tokens, because that
  * sentence is the entire product. Everything below is evidence for it.
  */
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import type { Portfolio } from '@/types/portfolio';
-import { fetchPortfolio } from '@/lib/api';
+import { usePortfolio } from '@/lib/usePortfolio';
 import { usd, toneOf } from '@/lib/format';
 import { Card, Label, ExposureBar, Skeleton, ConfidenceNote, EmptyState } from '@/components/ui/Primitives';
 import { PositionRow } from '@/components/PositionRow';
@@ -18,29 +17,7 @@ import { ObservationsCard } from '@/components/ObservationsCard';
 import { WalletBadge } from '@/components/WalletBadge';
 
 export function PortfolioHome({ address }: { address: string }) {
-  const [data, setData] = useState<Portfolio | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loadingPnl, setLoadingPnl] = useState(true);
-
-  useEffect(() => {
-    let live = true;
-    setData(null); setError(null); setLoadingPnl(true);
-
-    // Live state first so the screen is useful in a second, then the historical
-    // pass fills in P&L. Waiting for the slow half before showing anything is
-    // how a fast product feels slow.
-    fetchPortfolio(address)
-      .then((quick) => { if (live) setData(quick); })
-      .catch((e) => { if (live) setError(e.message); })
-      .finally(() => {
-        fetchPortfolio(address, { deep: true })
-          .then((full) => { if (live) setData(full); })
-          .catch(() => { /* keep the quick view */ })
-          .finally(() => { if (live) setLoadingPnl(false); });
-      });
-
-    return () => { live = false; };
-  }, [address]);
+  const { data, error, loadingHistory: loadingPnl } = usePortfolio(address);
 
   if (error) {
     return <EmptyState title="We could not read that wallet" body={error} />;

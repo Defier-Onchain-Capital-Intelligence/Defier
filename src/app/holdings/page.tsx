@@ -15,7 +15,10 @@ export default async function HoldingsPage({
   }
   return (
     <Suspense fallback={<Skeleton className="h-64" />}>
-      <HoldingsView address={clean} initialTab={tab === 'stocks' ? 'stocks' : 'crypto'} />
+      <HoldingsView
+        address={clean}
+        initialTab={tab === 'stocks' ? 'stocks' : tab === 'crypto' ? 'crypto' : 'all'}
+      />
     </Suspense>
   );
 }

@@ -6,9 +6,9 @@
  * of its range still holds your money and still needs attention; one that has been
  * withdrawn is history. Sorting by range would put those two in the same bucket.
  */
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { Portfolio } from '@/types/portfolio';
-import { fetchPortfolio } from '@/lib/api';
+import { usePortfolio } from '@/lib/usePortfolio';
 import { usd, toneOf, relativeDays } from '@/lib/format';
 import { Card, Label, Skeleton, EmptyState } from '@/components/ui/Primitives';
 import { PositionRow } from '@/components/PositionRow';
@@ -17,16 +17,7 @@ type Tab = 'open' | 'closed';
 
 export function PositionsView({ address, initialTab }: { address: string; initialTab: Tab }) {
   const [tab, setTab] = useState<Tab>(initialTab);
-  const [data, setData] = useState<Portfolio | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let live = true;
-    fetchPortfolio(address, { deep: true })
-      .then((d) => { if (live) setData(d); })
-      .catch((e) => { if (live) setError(e.message); });
-    return () => { live = false; };
-  }, [address]);
+  const { data, error } = usePortfolio(address, { deep: true });
 
   if (error) return <EmptyState title="We could not read that wallet" body={error} />;
   if (!data) return <div className="space-y-3"><Skeleton className="h-10" /><Skeleton className="h-48" /></div>;
