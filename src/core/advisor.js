@@ -115,10 +115,12 @@ export function observe(portfolio) {
   const vsHodl = summary?.allTime?.lpVsHodlUsd;
   if (Number.isFinite(vsHodl) && Math.abs(vsHodl) > 1) {
     add('vs-hodl', 'info',
+      // Scoped in the title. This is the all time figure, closed positions
+      // included, and left unqualified it reads as a claim about today.
       vsHodl >= 0
-        ? `Providing liquidity has earned ${money(vsHodl)} more than holding`
-        : `Providing liquidity has cost ${money(vsHodl)} against holding`,
-      'Measured against the same tokens left untouched in your wallet, valued today.',
+        ? `All time, providing liquidity has earned ${money(vsHodl)} more than holding`
+        : `All time, providing liquidity has cost ${money(vsHodl)} against holding`,
+      'Every position this wallet has ever opened, closed ones included, measured against the same tokens left untouched.',
       null);
   }
 

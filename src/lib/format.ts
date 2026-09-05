@@ -59,8 +59,9 @@ export function dateOf(timestamp: number | null | undefined): string {
 export function relativeDays(days: number | null | undefined): string {
   if (days == null || !Number.isFinite(days)) return '—';
   if (days < 1) return 'today';
-  if (days < 30) return `${Math.round(days)} days`;
-  if (days < 365) return `${Math.round(days / 30)} months`;
+  const plural = (n: number, unit: string) => `${n} ${unit}${n === 1 ? '' : 's'}`;
+  if (days < 30) return plural(Math.round(days), 'day');
+  if (days < 365) return plural(Math.round(days / 30), 'month');
   return `${(days / 365).toFixed(1)} years`;
 }
 

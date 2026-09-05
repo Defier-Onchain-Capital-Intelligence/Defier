@@ -90,9 +90,12 @@ export function PositionDetail({ id, wallet }: { id: string; wallet: string }) {
           </dl>
           {pnl.breakevenPrices?.upper ? (
             <p className="mt-3 rounded-xl bg-bg-elevated p-3 text-xs leading-relaxed text-ink-secondary">
-              This position beats holding while {symbol0} trades between{' '}
+              {/* Solved from today's price forward, not from the entry price. Said
+                  plainly, because unqualified it reads as a verdict on the past. */}
+              From here, this position keeps beating holding while {symbol0} trades between{' '}
               <span className="tnum text-ink-primary">{price(pnl.breakevenPrices.lower)}</span> and{' '}
-              <span className="tnum text-ink-primary">{price(pnl.breakevenPrices.upper)}</span> {symbol1}.
+              <span className="tnum text-ink-primary">{price(pnl.breakevenPrices.upper)}</span> {symbol1},
+              assuming fees keep accruing at the rate they have so far.
             </p>
           ) : null}
         </Card>
