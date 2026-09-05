@@ -10,6 +10,7 @@
  */
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { ConnectButton } from '@/components/ConnectButton';
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 
@@ -28,6 +29,14 @@ export function WalletEntry({ demoWallet }: { demoWallet?: string }) {
 
   return (
     <div className="space-y-3">
+      <ConnectButton autoRedirect />
+
+      <div className="flex items-center gap-3">
+        <span className="h-px flex-1 bg-bg-border" />
+        <span className="text-[0.6875rem] uppercase tracking-wide text-ink-muted">or</span>
+        <span className="h-px flex-1 bg-bg-border" />
+      </div>
+
       <form
         onSubmit={(e) => { e.preventDefault(); go(value); }}
         className="space-y-3"
@@ -53,9 +62,15 @@ export function WalletEntry({ demoWallet }: { demoWallet?: string }) {
         </button>
       ) : null}
 
-      <p className="text-xs text-ink-muted text-center">
-        Read only. No signature, no connection, no seed phrase, ever.
-      </p>
+      <div className="rounded-xl border border-bg-border bg-bg-elevated p-3">
+        <p className="text-[0.6875rem] leading-relaxed text-ink-secondary">
+          <span className="text-ink-primary">Connecting is safe here, and you can skip it.</span>{' '}
+          A connection reveals your address and nothing else: no spending permission,
+          no approvals, no session. This app never asks you to sign anything, because
+          it has nothing to sign for. Pasting an address gives you exactly the same
+          result, including for wallets you do not control.
+        </p>
+      </div>
     </div>
   );
 }

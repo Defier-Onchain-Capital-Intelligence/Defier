@@ -10,10 +10,11 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import type { Portfolio } from '@/types/portfolio';
 import { fetchPortfolio } from '@/lib/api';
-import { usd, toneOf, shortAddress } from '@/lib/format';
+import { usd, toneOf } from '@/lib/format';
 import { Card, Label, ExposureBar, Skeleton, ConfidenceNote, EmptyState } from '@/components/ui/Primitives';
 import { PositionRow } from '@/components/PositionRow';
 import { ScenarioCard } from '@/components/ScenarioCard';
+import { WalletBadge } from '@/components/WalletBadge';
 
 export function PortfolioHome({ address }: { address: string }) {
   const [data, setData] = useState<Portfolio | null>(null);
@@ -63,7 +64,7 @@ export function PortfolioHome({ address }: { address: string }) {
           <Label>Your capital on Base</Label>
           <p className="hero-num mt-1">{usd(summary.totalValueUsd)}</p>
         </div>
-        <span className="pill-muted font-mono">{shortAddress(address)}</span>
+        <WalletBadge address={address} />
       </header>
 
       <Card>
