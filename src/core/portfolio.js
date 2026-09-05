@@ -13,6 +13,7 @@ import { ethers } from 'ethers';
 import { scanWalletPositions, _enrichPosition } from './scanner.js';
 import { getStakedTokenIds, getWalletTokenIdsFromLogs, getPositionHistory, getPendingRewards } from './history.js';
 import { computeExposure, classify } from './exposure.js';
+import { computePositionPnl, headlineFor } from './pnl.js';
 import { tickToPrice } from './math.js';
 import { STOCK_ADDRESSES, BASE_TOKENS, AERODROME_CL_DEPLOYMENTS } from './constants.base.js';
 import { NFPM_ADDRS, FACTORY_ADDRS } from './constants.js';
@@ -223,7 +224,7 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
       incentivesPending = { amount, usd: aeroPrice ? amount * aeroPrice : 0 };
     }
 
-    return toLpPosition(p, {
+    const position = toLpPosition(p, {
       staked, gaugeAddress, nfpmAddress: nfpm, incentivesPending,
       events: history.events,
       openedAt: history.openedAt,
@@ -231,6 +232,11 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
       confidence: history.confidence,
       notes: history.notes,
     });
+
+    // P&L needs the event history. Without it we report null rather than a
+    // number built on assumptions.
+    if (position.events.length > 0) position.pnl = computePositionPnl(position);
+    return position;
   }, 3, 100);
 
   const positions = results.filter((r) => r.status === 'fulfilled').map((r) => r.value);
@@ -240,6 +246,11 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
   const feesTotalUsd = open.reduce((a, p) => a + (p.feesUnclaimed.usd || 0), 0);
   const incentivesTotalUsd = positions.reduce((a, p) => a + (p.incentivesPending?.usd || 0), 0);
 
+  // Closed positions count towards P&L: money made and lost is money made and lost.
+  const withPnl = positions.filter((p) => p.pnl);
+  const lpNetPnlUsd = withPnl.reduce((a, p) => a + p.pnl.netPnlUsd, 0);
+  const lpVsHodlUsd = withPnl.reduce((a, p) => a + p.pnl.lpVsHodlUsd, 0);
+
   const tokens = [];
   const lending = [];
   const exposure = computeExposure(positions, tokens, lending);
@@ -247,24 +258,30 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
   const stakedCount = positions.filter((p) => p.staked).length;
   const closedCount = positions.length - open.length;
 
-  const parts = [];
-  if (open.length) parts.push(`${open.length} open ${open.length === 1 ? 'position' : 'positions'} worth $${lpValueUsd.toFixed(2)}`);
-  if (stakedCount) parts.push(`${stakedCount} staked in a gauge`);
-  if (closedCount) parts.push(`${closedCount} closed`);
-
   const summary = {
     totalValueUsd: lpValueUsd,
     lpValueUsd,
     tokensValueUsd: 0,
     stocksValueUsd: 0,
     lendingNetUsd: 0,
-    lpNetPnlUsd: 0,
-    lpVsHodlUsd: 0,
+    lpNetPnlUsd,
+    lpVsHodlUsd,
     feesTotalUsd,
     incentivesTotalUsd,
-    headline: parts.length ? parts.join(', ') : 'No liquidity positions found on Base',
-    confidence: positions.every((p) => p.confidence === 'full') && positions.length ? 'full' : 'partial',
+    headline: '',
+    confidence: positions.length && positions.every((p) => p.confidence === 'full') ? 'full' : 'partial',
   };
+
+  // The engine writes the sentence, not the UI. First the answer, then the detail.
+  if (withPnl.length > 0) {
+    summary.headline = headlineFor(summary);
+  } else {
+    const parts = [];
+    if (open.length) parts.push(`${open.length} open ${open.length === 1 ? 'position' : 'positions'} worth $${lpValueUsd.toFixed(2)}`);
+    if (stakedCount) parts.push(`${stakedCount} staked in a gauge`);
+    if (closedCount) parts.push(`${closedCount} closed`);
+    summary.headline = parts.length ? parts.join(', ') : 'No liquidity positions found on Base';
+  }
 
   return {
     address: wallet,
