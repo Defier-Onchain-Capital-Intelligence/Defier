@@ -32,7 +32,9 @@ export function ConnectButton({ autoRedirect = false }: { autoRedirect?: boolean
   }, [autoRedirect, isConnected, address, router]);
 
   return (
-    <Wallet>
+    // OnchainKit sizes its own button to its content; the wrapper is what makes
+    // it match the width of everything else in the column.
+    <Wallet className="!w-full [&>div]:!w-full [&_button]:!w-full">
       <ConnectWallet className="!w-full !justify-center !rounded-xl !bg-accent !py-3 !text-sm !font-medium hover:!bg-accent-dim">
         <Avatar className="h-5 w-5" />
         <Name />
