@@ -3,10 +3,35 @@ import '../styles/globals.css';
 import { Providers } from '@/components/Providers';
 import { AppShell } from '@/components/AppShell';
 
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://defier-alpha.vercel.app';
+
 export const metadata: Metadata = {
+  metadataBase: new URL(APP_URL),
   title: 'DeFier · Know what your capital is actually earning',
-  description: 'Onchain capital intelligence on Base. True LP P&L, LP vs HODL, exposure, tokenized stocks and an AI that explains it.',
-  // TODO(Part 4): Mini App metadata (fc:frame / fc:miniapp) per docs.base.org/mini-apps
+  description: 'Onchain capital intelligence on Base. True LP P&L, LP versus holding, exposure, tokenized stocks, and an assistant that answers with the engine\'s own figures.',
+  openGraph: {
+    title: 'DeFier',
+    description: 'Did providing liquidity actually beat holding? Find out from your onchain history.',
+    url: APP_URL,
+    siteName: 'DeFier',
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'DeFier',
+    description: 'Did providing liquidity actually beat holding?',
+  },
+  other: {
+    // Base App reads this to render the app as an embed rather than a plain link.
+    'fc:miniapp': JSON.stringify({
+      version: '1',
+      imageUrl: `${APP_URL}/og.png`,
+      button: {
+        title: 'Analyse a wallet',
+        action: { type: 'launch_miniapp', name: 'DeFier', url: APP_URL, splashBackgroundColor: '#08090C' },
+      },
+    }),
+  },
 };
 export const viewport: Viewport = { width: 'device-width', initialScale: 1, maximumScale: 5, themeColor: '#08090C' };
 
