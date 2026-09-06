@@ -13,7 +13,10 @@ export default async function PoolsPage({
 
   return (
     <Suspense fallback={<Skeleton className="h-64" />}>
-      <PoolsView address={valid} initialTab={tab === 'find' ? 'find' : 'mine'} />
+      <PoolsView
+        address={valid}
+        initialTab={tab === 'find' ? 'find' : tab === 'lending' ? 'lending' : 'mine'}
+      />
     </Suspense>
   );
 }

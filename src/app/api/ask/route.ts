@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { rateLimit } from '@/lib/rateLimit';
+import { getBaseLendingMarkets } from '@/lib/llamaPools';
 import { getAnthropicKey, getAnthropicModel } from '@/lib/env';
 import { buildPortfolio } from '@/core/portfolio.js';
 import { portfolioFacts, observe } from '@/core/advisor.js';
@@ -54,6 +55,17 @@ const TOOLS: Anthropic.Tool[] = [
     name: 'get_observations',
     description: 'Observations about this portfolio\'s composition, each paired with what exists on Base for that situation. Use these verbatim rather than inventing your own.',
     input_schema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'get_lending_markets',
+    description: 'Lending markets on Base with both sides: what each asset pays to supply and what it costs to borrow, plus utilisation and LTV. Use it when someone asks about idle assets, borrowing, or keeping exposure while putting capital to work. Rates are live and change; quote them as current.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: "Optional protocol filter, e.g. 'aave-v3'." },
+      },
+      required: [],
+    },
   },
   {
     name: 'simulate',
@@ -118,6 +130,25 @@ export async function POST(req: Request) {
   const runTool = async (name: string, input: Record<string, unknown>) => {
     if (name === 'get_portfolio') return portfolioFacts(await getPortfolio());
     if (name === 'get_observations') return observe(await getPortfolio());
+    if (name === 'get_lending_markets') {
+      const project = typeof input.project === 'string' ? input.project.slice(0, 32) : undefined;
+      const markets = await getBaseLendingMarkets(project);
+      // Trimmed: the agent needs the rates and the size, not every field.
+      return {
+        markets: markets.slice(0, 25).map((m) => ({
+          asset: m.symbol,
+          protocol: m.project,
+          supplyApyPct: m.supplyApyPct,
+          supplyRewardApyPct: m.supplyRewardApyPct,
+          borrowApyPct: m.netBorrowApyPct,
+          borrowable: m.borrowable,
+          maxLoanToValuePct: m.ltv != null ? m.ltv * 100 : null,
+          suppliedUsd: m.totalSupplyUsd,
+          utilisationPct: m.utilisationPct,
+        })),
+        note: 'Rates are live and move with utilisation. They are what the market pays right now, not a fixed rate.',
+      };
+    }
     if (name === 'simulate') {
       const n = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
       const entry = n(input.entryPrice, 0);

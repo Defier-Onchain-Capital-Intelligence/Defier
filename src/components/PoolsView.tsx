@@ -1,6 +1,6 @@
 'use client';
 /**
- * Pools. Yours first, everyone else's second.
+ * Earn. Yours first, then the two ways to put capital to work on Base.
  *
  * The ranking leads with a seven day fee APR rather than today's headline,
  * because today's headline is one day of trading annualised and it is the reason
@@ -21,8 +21,9 @@ import { InfoDot } from '@/components/ui/InfoDot';
 import { TokenPair } from '@/components/ui/TokenLogo';
 import { PositionsList } from '@/components/PositionsView';
 import { usePoolList } from '@/lib/usePool';
+import { LendingView } from '@/components/LendingView';
 
-type Tab = 'mine' | 'find';
+type Tab = 'mine' | 'find' | 'lending';
 type Sort = 'fee7d' | 'fee30d' | 'apy' | 'tvl' | 'volume';
 
 const PROJECT_LABEL: Record<string, string> = {
@@ -46,19 +47,21 @@ const RISK_LABEL: Record<string, string> = {
 export function PoolsView({ address, initialTab }: { address?: string; initialTab: Tab }) {
   const [tab, setTab] = useState<Tab>(address ? initialTab : 'find');
 
+  const options = [
+    ...(address ? [{ key: 'mine' as Tab, label: 'Mine' }] : []),
+    { key: 'find' as Tab, label: 'Pools' },
+    { key: 'lending' as Tab, label: 'Lending' },
+  ];
+
   return (
     <div className="space-y-4">
-      <h1 className="text-lg font-semibold">Pools</h1>
+      <h1 className="text-lg font-semibold">Earn</h1>
 
-      {address ? (
-        <Tabs<Tab>
-          value={tab}
-          onChange={setTab}
-          options={[{ key: 'mine', label: 'My pools' }, { key: 'find', label: 'Find pools' }]}
-        />
-      ) : null}
+      <Tabs<Tab> value={tab} onChange={setTab} options={options} />
 
-      {tab === 'mine' && address ? <PositionsList address={address} initialTab="open" /> : <FindPools />}
+      {tab === 'lending' ? <LendingView />
+        : tab === 'mine' && address ? <PositionsList address={address} initialTab="open" />
+        : <FindPools />}
     </div>
   );
 }

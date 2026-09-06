@@ -11,7 +11,7 @@ import { usePathname, useSearchParams } from 'next/navigation';
 const NAV = [
   { href: '/',          label: 'Portfolio' },
   { href: '/holdings',  label: 'Holdings' },
-  { href: '/pools',     label: 'Pools' },
+  { href: '/pools',     label: 'Earn' },
   { href: '/simulate',  label: 'Simulate' },
   { href: '/ask',       label: 'Ask' },
 ];

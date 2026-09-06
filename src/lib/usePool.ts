@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import type { PoolDetail, PoolRow } from '@/types/pool';
+import type { LendingMarket } from '@/lib/llamaPools';
 
 function useJson<T>(url: string | null) {
   const [data, setData] = useState<T | null>(null);
@@ -30,4 +31,10 @@ export function usePoolDetail(id: string) {
 
 export function usePoolList(stocksOnly: boolean) {
   return useJson<{ pools: PoolRow[] }>(`/api/pools${stocksOnly ? '?stocks=1' : ''}`);
+}
+
+export function useLendingMarkets(project?: string) {
+  return useJson<{ markets: LendingMarket[] }>(
+    `/api/lending${project ? `?project=${encodeURIComponent(project)}` : ''}`,
+  );
 }
