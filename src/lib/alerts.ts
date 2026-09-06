@@ -20,7 +20,7 @@ import { ethers } from 'ethers';
 import { getProvider, withTimeout } from '@/core/providers.js';
 import { MULTICALL3_ADDR, MULTICALL3_ABI, POOL_ABI_AERO } from '@/core/constants.js';
 import { getServerSupabase } from './supabase';
-import { sendNotification, type NotificationTarget } from './notifications';
+import { sendNotification, targetsForFids, removeInvalidTokens, type NotificationTarget } from './notifications';
 
 export type Subscription = {
   id: number;
@@ -89,14 +89,13 @@ export async function runAlertPass(appUrl: string) {
   const pools = [...new Set(subscriptions.map((s) => s.pool_address.toLowerCase()))];
   const ticks = await readTicks(pools);
 
-  const { data: tokenRows } = await supabase
-    .from('notification_tokens')
-    .select('fid, token, url')
-    .in('fid', [...new Set(subscriptions.map((s) => s.fid))]);
-
-  const tokens = new Map<number, NotificationTarget>(
-    (tokenRows ?? []).map((r: NotificationTarget) => [r.fid, r]),
-  );
+  // A person can hold several tokens at once — a phone and a desktop — and after
+  // an unverified webhook event, some of them are junk. Send to all of theirs and
+  // let the client tell us which ones are dead.
+  const allTargets = await targetsForFids([...new Set(subscriptions.map((s) => s.fid))]);
+  const tokens = new Map<number, NotificationTarget[]>();
+  for (const t of allTargets) tokens.set(t.fid, [...(tokens.get(t.fid) || []), t]);
+  const dead: string[] = [];
 
   const today = new Date().toISOString().slice(0, 10);
   let fired = 0;
@@ -116,11 +115,11 @@ export async function runAlertPass(appUrl: string) {
     }
     if (state === sub.last_state) continue;
 
-    const target = tokens.get(sub.fid);
-    if (target) {
+    const targets = tokens.get(sub.fid);
+    if (targets?.length) {
       const left = state === 'out';
-      await sendNotification({
-        targets: [target],
+      const { invalidTokens } = await sendNotification({
+        targets,
         // Stable per position per direction per day: a position oscillating
         // across its edge cannot turn into a stream of messages.
         notificationId: `range-${state}-${sub.position_id}-${today}`,
@@ -130,6 +129,7 @@ export async function runAlertPass(appUrl: string) {
           : 'The price moved back inside your range, so fees are accruing again.',
         targetUrl: `${appUrl}/position/${encodeURIComponent(sub.position_id)}?wallet=${sub.wallet}`,
       });
+      dead.push(...invalidTokens);
       fired += 1;
     }
 
@@ -138,5 +138,12 @@ export async function runAlertPass(appUrl: string) {
       .eq('id', sub.id);
   }
 
-  return { ok: true, watched: subscriptions.length, pools: pools.length, fired, baselined };
+  // Tokens the client rejected are gone for good: this is where revocation and
+  // forged rows are both cleaned up.
+  if (dead.length) await removeInvalidTokens([...new Set(dead)]);
+
+  return {
+    ok: true, watched: subscriptions.length, pools: pools.length,
+    fired, baselined, tokensRetired: new Set(dead).size,
+  };
 }

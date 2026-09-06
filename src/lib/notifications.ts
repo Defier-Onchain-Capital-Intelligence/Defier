@@ -25,19 +25,45 @@ function clamp(text: string, max: number): string {
   return clean.length <= max ? clean : `${clean.slice(0, max - 1)}…`;
 }
 
+/**
+ * Record a token. One row per (fid, token), never one per fid.
+ *
+ * The webhook that calls this is a public URL whose signature we do not verify
+ * yet. Keyed by fid alone, a forged event would overwrite a real person's token
+ * and silence their alerts. Keyed by (fid, token), the worst it can do is add a
+ * row that never works, and the sender deletes those the first time it tries
+ * them.
+ */
 export async function saveNotificationToken(fid: number, token: string, url: string) {
   const supabase = getServerSupabase();
   if (!supabase) return;
   await supabase.from('notification_tokens').upsert({
     fid, token, url, updated_at: new Date().toISOString(),
-  }, { onConflict: 'fid' });
+  }, { onConflict: 'fid,token' });
 }
 
-/** Revoked permission is deleted, never flagged: a stale token is a liability. */
-export async function removeNotificationToken(fid: number) {
+/**
+ * Drop tokens the client itself rejected.
+ *
+ * This is where revocation is actually enforced, and deliberately so: a disable
+ * event arriving at an unverified webhook can be forged, but a token the client
+ * reports as invalid cannot. Someone who turns notifications off stops receiving
+ * them because Base App stops honouring their token, not because we trusted a
+ * message saying they did.
+ */
+export async function removeInvalidTokens(tokens: string[]) {
   const supabase = getServerSupabase();
-  if (!supabase) return;
-  await supabase.from('notification_tokens').delete().eq('fid', fid);
+  if (!supabase || !tokens.length) return;
+  await supabase.from('notification_tokens').delete().in('token', tokens);
+}
+
+/** Every token a person has. More than one is normal: a phone and a desktop. */
+export async function targetsForFids(fids: number[]): Promise<NotificationTarget[]> {
+  const supabase = getServerSupabase();
+  if (!supabase || !fids.length) return [];
+  const { data } = await supabase
+    .from('notification_tokens').select('fid, token, url').in('fid', fids);
+  return (data ?? []) as NotificationTarget[];
 }
 
 /**

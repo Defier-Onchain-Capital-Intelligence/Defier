@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { saveNotificationToken, removeNotificationToken } from '@/lib/notifications';
+import { saveNotificationToken } from '@/lib/notifications';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,11 +13,13 @@ export const dynamic = 'force-dynamic';
  * read the fid from the header and the event from the payload.
  *
  * Verification note: the signature is not cryptographically checked here yet, so
- * this endpoint is treated as untrusted input. What that limits is real and
- * bounded — the worst a forged event can do is register a notification token
- * against a wrong fid, or delete one, and no notification can be delivered
- * without a token the client itself issued. It is written down rather than
- * papered over, and it is the first thing to close before launch.
+ * everything arriving is treated as untrusted. Two design choices bound what a
+ * forged event can do. Tokens are stored one row per (fid, token), so a forgery
+ * adds a row that never works instead of overwriting a working one. And a
+ * disable event deletes nothing, so nobody can silence someone else by posting
+ * here. What remains is junk rows that the sender cleans up the first time it
+ * tries them. Verifying the signature closes even that, and it is the first
+ * thing to do before launch.
  */
 
 function decodeSegment(segment: string): Record<string, unknown> | null {
@@ -55,9 +57,14 @@ export async function POST(req: Request) {
       }
     }
 
+    // A disable event deletes nothing. This endpoint's signature is not verified,
+    // so honouring "stop notifying this person" from an unauthenticated POST
+    // would hand anyone a way to silence anyone. Revocation is enforced where it
+    // cannot be forged: the moment Base App stops honouring a token it reports it
+    // as invalid, and the sender deletes it then.
     if (event === 'miniapp_removed' || event === 'frame_removed'
       || event === 'notifications_disabled') {
-      if (Number.isFinite(fid) && fid > 0) await removeNotificationToken(fid);
+      console.info('[webhook] disable event received', { event, fid });
     }
   } catch (err) {
     console.error('[webhook] could not record event', { event, err });
