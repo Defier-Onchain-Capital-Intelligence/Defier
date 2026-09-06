@@ -18,6 +18,7 @@ import type { PoolRow } from '@/types/pool';
 import { usd, pct } from '@/lib/format';
 import { Card, Label, Tabs, Skeleton, EmptyState } from '@/components/ui/Primitives';
 import { InfoDot } from '@/components/ui/InfoDot';
+import { TokenPair } from '@/components/ui/TokenLogo';
 import { PositionsList } from '@/components/PositionsView';
 import { usePoolList } from '@/lib/usePool';
 
@@ -152,7 +153,13 @@ function PoolRowItem({ pool }: { pool: PoolRow }) {
       className="-mx-4 block px-4 py-3 transition-colors hover:bg-bg-elevated/50"
     >
       <div className="flex items-baseline justify-between gap-3">
-        <div className="min-w-0">
+        <div className="flex min-w-0 items-start gap-2.5">
+          <TokenPair
+            token0={{ address: pool.tokens?.[0], symbol: pool.symbol?.split('-')[0] }}
+            token1={{ address: pool.tokens?.[1], symbol: pool.symbol?.split('-')[1] }}
+            size={22}
+          />
+          <div className="min-w-0">
           <p className="truncate font-medium">
             {pool.symbol}
             {pool.variant ? (
@@ -170,6 +177,7 @@ function PoolRowItem({ pool }: { pool: PoolRow }) {
               {RISK_LABEL[pool.risk] || pool.risk}
             </span>
           </p>
+          </div>
         </div>
         <div className="shrink-0 text-right">
           <p className="font-semibold tnum text-gain">

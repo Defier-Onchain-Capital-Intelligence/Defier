@@ -50,6 +50,7 @@ export function computeHoldings(positions, tokens, lending) {
     lines.push({
       key: `wallet:${String(t.token?.address || '').toLowerCase()}`,
       venue: 'wallet',
+      address: String(t.token?.address || '').toLowerCase(),
       symbol: t.token?.symbol || '???',
       assetClass,
       amount: Number.isFinite(t.scaledBalance) ? t.scaledBalance : (Number.isFinite(t.balance) ? t.balance : null),
@@ -91,6 +92,8 @@ export function computeHoldings(positions, tokens, lending) {
         feesToken1: p.feesUnclaimed?.token1 ?? 0,
         symbol0: p.token0?.symbol || '???',
         symbol1: p.token1?.symbol || '???',
+        address0: String(p.token0?.address || '').toLowerCase(),
+        address1: String(p.token1?.address || '').toLowerCase(),
         rewardsPendingAmount: p.incentivesPending?.amount ?? null,
       },
     };
@@ -104,6 +107,7 @@ export function computeHoldings(positions, tokens, lending) {
       lines.push({
         key: `lp:${p.id}:${side}`,
         venue: 'lp',
+        address: String(token?.address || '').toLowerCase(),
         symbol: token?.symbol || '???',
         assetClass: token?.assetClass || classify(token?.address),
         amount: amt,
@@ -126,6 +130,7 @@ export function computeHoldings(positions, tokens, lending) {
       lines.push({
         key: `lend:${l.protocol}:s:${String(s.token?.address || '').toLowerCase()}`,
         venue: 'lending',
+        address: String(s.token?.address || '').toLowerCase(),
         symbol: s.token?.symbol || '???',
         assetClass: s.token?.assetClass || classify(s.token?.address),
         amount: s.amount ?? null,
@@ -144,6 +149,7 @@ export function computeHoldings(positions, tokens, lending) {
       lines.push({
         key: `lend:${l.protocol}:b:${String(b.token?.address || '').toLowerCase()}`,
         venue: 'lending',
+        address: String(b.token?.address || '').toLowerCase(),
         symbol: b.token?.symbol || '???',
         assetClass: b.token?.assetClass || classify(b.token?.address),
         amount: b.amount != null ? -b.amount : null,

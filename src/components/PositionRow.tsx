@@ -4,6 +4,7 @@ import type { LpPosition } from '@/types/portfolio';
 import { usd, pct, toneOf, price as fmtPrice } from '@/lib/format';
 import { StatusPill } from '@/components/ui/Primitives';
 import { RangeBar } from '@/components/ui/RangeBar';
+import { TokenPair } from '@/components/ui/TokenLogo';
 
 /**
  * One line in a list. Scannable without reading: pair, state, value, verdict,
@@ -21,7 +22,9 @@ export function PositionRow({ position, wallet }: { position: LpPosition; wallet
       className="block py-3 transition-colors hover:bg-bg-elevated/50 -mx-4 px-4"
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
+        <div className="flex min-w-0 items-start gap-2.5">
+          <TokenPair token0={position.token0} token1={position.token1} size={22} />
+          <div className="min-w-0">
           <p className="truncate font-medium">
             {position.symbol}
             {hasStock ? <span className="ml-2 pill-stock">Stock</span> : null}
@@ -29,6 +32,7 @@ export function PositionRow({ position, wallet }: { position: LpPosition; wallet
           <p className="mt-1">
             <StatusPill inRange={position.inRange} staked={position.staked} closed={position.closed} />
           </p>
+          </div>
         </div>
         <div className="shrink-0 text-right">
           <p className="font-semibold tnum">{usd(position.valueUsd)}</p>

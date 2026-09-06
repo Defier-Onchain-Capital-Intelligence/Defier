@@ -59,6 +59,10 @@ export interface PoolDetail {
   currentTick: number;
   currentPrice: number;
   decimals: { token0: number; token1: number };
+  tokens: {
+    token0: { address: string; symbol: string | null };
+    token1: { address: string; symbol: string | null };
+  };
   prices: { token0: number | null; token1: number | null };
   rewardLabel: string | null;
   emissionsPerYearUsd: number | null;

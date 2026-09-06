@@ -24,6 +24,7 @@ import type { Portfolio, HoldingsBucket, HoldingLine } from '@/types/portfolio';
 import { usd, amount, pct } from '@/lib/format';
 import { Card, Label, Tabs, ExposureBar, Skeleton, EmptyState, StatusPill } from '@/components/ui/Primitives';
 import { InfoDot } from '@/components/ui/InfoDot';
+import { TokenLogo, TokenPair } from '@/components/ui/TokenLogo';
 import { usePortfolio } from '@/lib/usePortfolio';
 
 type Side = 'all' | 'crypto' | 'stocks';
@@ -206,7 +207,14 @@ function PositionHolding({ lines, wallet }: { lines: HoldingLine[]; wallet: stri
       className="-mx-4 block px-4 py-3 transition-colors hover:bg-bg-elevated/50"
     >
       <div className="flex items-baseline justify-between gap-3">
-        <span className="truncate font-medium">{p.symbol}</span>
+        <span className="flex min-w-0 items-center gap-2">
+          <TokenPair
+            token0={{ address: e.address0, symbol: e.symbol0 }}
+            token1={{ address: e.address1, symbol: e.symbol1 }}
+            size={20}
+          />
+          <span className="truncate font-medium">{p.symbol}</span>
+        </span>
         <span className="shrink-0 font-semibold tnum">{usd(shown)}</span>
       </div>
 
@@ -242,7 +250,8 @@ function WalletRow({ line }: { line: HoldingLine }) {
   return (
     <div className="py-3">
       <div className="flex items-baseline justify-between gap-3">
-        <span className="font-medium">
+        <span className="flex min-w-0 items-center gap-2 font-medium">
+          <TokenLogo address={line.address} symbol={line.symbol} size={20} />
           {line.symbol}
           {line.venue === 'wallet' ? (
             <span className="ml-2 rounded-full bg-bg-elevated px-1.5 py-0.5 text-[0.5625rem] font-medium uppercase tracking-wide text-ink-muted">

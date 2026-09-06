@@ -11,6 +11,7 @@ import type { PoolDetail } from '@/types/pool';
 import { usd, pct } from '@/lib/format';
 import { Card, Label, Skeleton, EmptyState, BackLink } from '@/components/ui/Primitives';
 import { InfoDot } from '@/components/ui/InfoDot';
+import { TokenPair } from '@/components/ui/TokenLogo';
 import { RangeCalculator } from '@/components/RangeCalculator';
 import { usePoolDetail } from '@/lib/usePool';
 
@@ -42,6 +43,7 @@ export function PoolDetailView({ id }: { id: string }) {
 
       <header>
         <div className="flex flex-wrap items-center gap-2">
+          <TokenPair token0={pool.tokens?.token0} token1={pool.tokens?.token1} size={26} />
           <h1 className="text-lg font-semibold">{pool.symbol}</h1>
           {pool.variant ? (
             <span className="rounded-md bg-bg-elevated px-1.5 py-0.5 text-[0.625rem] font-medium text-ink-secondary">

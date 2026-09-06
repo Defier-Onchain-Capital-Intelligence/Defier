@@ -357,3 +357,40 @@ export function generateSimulationCurve(
 export function tickToPrice(tick, dec0, dec1) {
   return Math.pow(1.0001, Number(tick)) * Math.pow(10, Number(dec0) - Number(dec1));
 }
+
+
+/**
+ * What a concentrated position is made of at a given price.
+ *
+ * The curve tells you what a position is worth. This tells you what it IS, which
+ * is the half people never see until the pool has already converted them: below
+ * the range you hold only token0, above it only token1, and in between the mix
+ * slides continuously between the two.
+ *
+ * Denominated in token1, so the two percentages are shares of the same value.
+ *
+ * @returns {{ pctToken0: number, pctToken1: number }} percentages, 0..100
+ */
+export function compositionAtPrice(lowerPrice, upperPrice, price) {
+  if (!(upperPrice > lowerPrice) || !(price > 0)) return { pctToken0: 0, pctToken1: 0 };
+
+  if (price <= lowerPrice) return { pctToken0: 100, pctToken1: 0 };
+  if (price >= upperPrice) return { pctToken0: 0, pctToken1: 100 };
+
+  const sqrtP = Math.sqrt(price);
+  const sqrtA = Math.sqrt(lowerPrice);
+  const sqrtB = Math.sqrt(upperPrice);
+
+  // L cancels out of the ratio, so it does not need to be known.
+  const amount0 = 1 / sqrtP - 1 / sqrtB;
+  const amount1 = sqrtP - sqrtA;
+
+  const value0 = amount0 * price;
+  const total = value0 + amount1;
+  if (!(total > 0)) return { pctToken0: 0, pctToken1: 0 };
+
+  return {
+    pctToken0: (value0 / total) * 100,
+    pctToken1: (amount1 / total) * 100,
+  };
+}

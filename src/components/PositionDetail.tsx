@@ -14,6 +14,7 @@ import { fetchPosition } from '@/lib/api';
 import { usd, amount, price, pct, toneOf, dateOf, relativeDays } from '@/lib/format';
 import { Card, Label, Skeleton, EmptyState, StatusPill, ConfidenceNote, BackLink } from '@/components/ui/Primitives';
 import { InfoDot } from '@/components/ui/InfoDot';
+import { TokenPair } from '@/components/ui/TokenLogo';
 import { StrategyTable } from '@/components/StrategyTable';
 
 export function PositionDetail({ id, wallet }: { id: string; wallet: string }) {
@@ -40,7 +41,10 @@ export function PositionDetail({ id, wallet }: { id: string; wallet: string }) {
       <BackLink href={`/pools?wallet=${wallet}&tab=mine`}>All positions</BackLink>
 
       <header>
-        <h1 className="text-lg font-semibold">{pos.symbol}</h1>
+        <div className="flex items-center gap-2.5">
+          <TokenPair token0={pos.token0} token1={pos.token1} size={26} />
+          <h1 className="text-lg font-semibold">{pos.symbol}</h1>
+        </div>
         <div className="mt-1.5 flex items-center gap-2">
           <StatusPill inRange={pos.inRange} staked={pos.staked} closed={pos.closed} />
           {pos.token0.isTokenizedStock || pos.token1.isTokenizedStock
@@ -175,6 +179,13 @@ function SimulateLink({ pos }: { pos: LpPosition }) {
     low: String(pos.priceLower),
     high: String(pos.priceUpper),
     size: String(Math.round(size * 100) / 100),
+    pair: pos.symbol,
+    project: pos.protocol,
+    s0: pos.token0.symbol,
+    s1: pos.token1.symbol,
+    a0: pos.token0.address,
+    a1: pos.token1.address,
+    from: 'position',
   });
   const apr = pos.pnl?.realizedAprPct;
   if (apr != null && apr > 0) params.set('apr', String(Math.round(apr * 10) / 10));

@@ -154,6 +154,8 @@ export interface Exposure {
 export interface HoldingLine {
   key: string;
   venue: 'wallet' | 'lp' | 'lending';
+  /** The token's contract address. The only stable key for a logo: symbols are mutable. */
+  address: string;
   symbol: string;
   assetClass: AssetClass;
   amount: number | null;
@@ -181,6 +183,8 @@ export interface HoldingLine {
       feesToken1: number;
       symbol0: string;
       symbol1: string;
+      address0: string;
+      address1: string;
       rewardsPendingAmount: number | null;
     };
   };
@@ -355,6 +359,9 @@ export interface SimulationInput {
 
 export interface SimulationPoint {
   price: number;
+  /** Share of the position's value in each token at this price, 0..100. */
+  pctToken0?: number;
+  pctToken1?: number;
   lpValue: number;
   holdValue: number;
   feesEarned: number;

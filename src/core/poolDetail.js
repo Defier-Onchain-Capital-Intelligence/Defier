@@ -236,6 +236,10 @@ export async function buildPoolDetail(pool) {
     currentTick: onchain.currentTick,
     currentPrice: tickToPrice(onchain.currentTick, onchain.d0, onchain.d1),
     decimals: { token0: onchain.d0, token1: onchain.d1 },
+    tokens: {
+      token0: { address: String(pool.underlyingTokens?.[0] || '').toLowerCase(), symbol: (pool.symbol || '').split('-')[0] || null },
+      token1: { address: String(pool.underlyingTokens?.[1] || '').toLowerCase(), symbol: (pool.symbol || '').split('-')[1] || null },
+    },
     prices: { token0: onchain.price0, token1: onchain.price1 },
     rewardLabel,
     emissionsPerYearUsd: emissionsPerYearUsd || null,

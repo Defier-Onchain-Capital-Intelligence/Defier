@@ -40,9 +40,17 @@ export function RangeCalculator({ pool }: { pool: PoolDetail }) {
       size: '10000',
       apr: String(Math.round(point.totalAprPct * 10) / 10),
       days: '30',
+      pair: pool.symbol || '',
+      project: pool.project || '',
+      from: 'pool',
     });
+    if (pool.variant) params.set('variant', pool.variant);
+    if (pool.tokens?.token0?.symbol) params.set('s0', pool.tokens.token0.symbol);
+    if (pool.tokens?.token1?.symbol) params.set('s1', pool.tokens.token1.symbol);
+    if (pool.tokens?.token0?.address) params.set('a0', pool.tokens.token0.address);
+    if (pool.tokens?.token1?.address) params.set('a1', pool.tokens.token1.address);
     return `/simulate?${params.toString()}`;
-  }, [point, lowPrice, highPrice, pool.currentPrice]);
+  }, [point, lowPrice, highPrice, pool]);
 
   if (!grid.length || !point) {
     return (
