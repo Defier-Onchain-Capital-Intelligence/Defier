@@ -190,11 +190,14 @@ export function computeScenarios(positions, tokens) {
     axes,
     mixedAxes,
     /** What "up" means across the portfolio, in words, or why it cannot be said. */
+    // These get read straight after the word "If", so they are clauses with a
+    // verb, not noun phrases. "If every position moving the other way" is the
+    // kind of sentence that makes a careful product look careless.
     upLabel: mixedAxes
-      ? 'every position moving in favour of its first asset at once'
+      ? 'every position moves in favour of its first asset at once'
       : (perPosition[0]?.upMeans ?? null),
     downLabel: mixedAxes
-      ? 'every position moving the other way at once'
+      ? 'every position moves the other way at once'
       : (perPosition[0]?.downMeans ?? null),
     caveat: mixedAxes
       ? 'These positions are not bets on the same thing, so the combined view assumes all of them move the same way at once. Read each position on its own axis below.'
