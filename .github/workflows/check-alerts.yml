@@ -1,0 +1,27 @@
+# Range alerts run on a schedule outside the app.
+#
+# Vercel cron on the free plan fires once a day, which is useless for something
+# that has to notice a price crossing a boundary. GitHub Actions runs every five
+# minutes for free and the endpoint it calls is guarded by a shared secret, so
+# the schedule lives here and the logic stays in the app.
+name: Check range alerts
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call the alert pass
+        run: |
+          code=$(curl -s -o /tmp/out.json -w '%{http_code}' \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.APP_URL }}/api/cron/check-alerts")
+          cat /tmp/out.json
+          if [ "$code" != "200" ]; then
+            echo "Alert pass returned $code"
+            exit 1
+          fi

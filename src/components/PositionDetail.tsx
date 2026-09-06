@@ -16,6 +16,7 @@ import { Card, Label, Skeleton, EmptyState, StatusPill, ConfidenceNote, BackLink
 import { InfoDot } from '@/components/ui/InfoDot';
 import { TokenPair } from '@/components/ui/TokenLogo';
 import { StrategyTable } from '@/components/StrategyTable';
+import { AlertToggle } from '@/components/AlertToggle';
 
 export function PositionDetail({ id, wallet }: { id: string; wallet: string }) {
   const [pos, setPos] = useState<LpPosition | null>(null);
@@ -85,6 +86,8 @@ export function PositionDetail({ id, wallet }: { id: string; wallet: string }) {
       </Card>
 
       {!pos.closed ? <RangeCard pos={pos} /> : null}
+
+      {!pos.closed ? <AlertToggle pos={pos} wallet={wallet} /> : null}
 
       {pos.strategies ? <StrategyTable strategies={pos.strategies} /> : null}
 

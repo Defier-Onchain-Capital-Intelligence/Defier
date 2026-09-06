@@ -1,10 +1,12 @@
 'use client';
 /**
- * OnchainKit provider for Base.
+ * Providers for Base.
  *
- * OnchainKit ships its own wagmi + react-query defaults (DefaultOnchainKitProviders),
- * so we do not wrap our own WagmiProvider here. If we ever need custom connectors,
- * add a WagmiProvider above this one and OnchainKit will pick it up.
+ * MiniKit is switched on through OnchainKit rather than stacked as a second
+ * provider. Inside Base App it supplies the mini app context — who is viewing,
+ * whether they have added the app — and outside it that context is simply null,
+ * which is what lets one build serve a web page and a mini app with no second
+ * code path and no feature detection scattered through the screens.
  *
  * The API key is public by design (NEXT_PUBLIC_). What protects it is the allowed
  * domain list in the CDP portal, not secrecy. See SECURITY.md section 1.
@@ -23,7 +25,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <OnchainKitProvider
       apiKey={process.env.NEXT_PUBLIC_ONCHAINKIT_API_KEY}
       chain={base}
-      config={{ appearance: { name: 'DeFier', mode: 'light', theme: 'default' } }}
+      config={{ appearance: { name: 'DeFier', mode: 'dark', theme: 'default' } }}
+      miniKit={{ enabled: true }}
     >
       {children}
     </OnchainKitProvider>
