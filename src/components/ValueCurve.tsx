@@ -19,11 +19,15 @@ import type { ValueHistory, ValuePoint } from '@/types/portfolio';
 import { usd, toneOf } from '@/lib/format';
 import { Card, Label, Skeleton } from '@/components/ui/Primitives';
 
+// Formatted in UTC because the engine buckets days in UTC. Without this the
+// label for a bucket reads as the previous day for every viewer west of
+// Greenwich — the curve would be right and its dates a day off, which is the
+// kind of small wrongness that makes someone doubt the large numbers too.
 const dayLabel = (ts: number) =>
-  new Date(ts * 1000).toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
+  new Date(ts * 1000).toLocaleDateString('en-US', { day: 'numeric', month: 'short', timeZone: 'UTC' });
 
 const fullDate = (ts: number) =>
-  new Date(ts * 1000).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+  new Date(ts * 1000).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 
 function CurveTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: ValuePoint }> }) {
   if (!active || !payload?.length) return null;
