@@ -62,6 +62,11 @@ function shape(portfolio: Portfolio, compact: boolean) {
       confidence: p.confidence,
     })),
     warnings: portfolio.warnings,
+    // Diagnostics survive the compact view on purpose: the whole reason to ask
+    // for both is to read the trace without the payload it hangs off.
+    ...((portfolio as unknown as { diagnostics?: unknown }).diagnostics
+      ? { diagnostics: (portfolio as unknown as { diagnostics?: unknown }).diagnostics }
+      : {}),
   };
 }
 
