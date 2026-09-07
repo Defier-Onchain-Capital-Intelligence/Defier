@@ -107,7 +107,7 @@ function toLpPosition(p, extra = {}) {
  * positions gets the claim does not change a lifetime total; counting it twice
  * would.
  */
-function dedupeClaimEvents(positions) {
+export function dedupeClaimEvents(positions) {
   const seen = new Set();
   const ordered = [...positions].sort((a, b) => (a.openedAt || 0) - (b.openedAt || 0));
 
