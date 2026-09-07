@@ -61,7 +61,17 @@ const topic = {
 
 const pad32   = (addrOrHex) => ethers.utils.hexZeroPad(String(addrOrHex).toLowerCase(), 32);
 const idTopic = (tokenId)   => ethers.utils.hexZeroPad(ethers.BigNumber.from(tokenId).toHexString(), 32);
-const human   = (bn, dec)   => parseFloat(ethers.utils.formatUnits(bn, dec));
+/** Never throws. A bad decimals value should degrade one number, not abort a
+ *  whole reconstruction three files away from where the mistake was made. */
+const human = (bn, dec) => {
+  const d = Number(dec);
+  if (!Number.isInteger(d) || d < 0 || d > 36) return null;
+  try {
+    return parseFloat(ethers.utils.formatUnits(bn, d));
+  } catch (_) {
+    return null;
+  }
+};
 
 // ─── Staked position discovery ────────────────────────────────────────────────
 
@@ -374,6 +384,21 @@ export async function reconstructBurnedPosition({ protocol = 'aerodrome', tokenI
   ]);
   if (!token0 || !token1) return fail('token metadata unavailable');
 
+  // getTokenInfo answers { sym, dec }, not { symbol, decimals }. Reading the
+  // long names produced undefined, Number(undefined) produced NaN, and ethers
+  // threw "invalid decimal size" deep inside formatUnits while replaying the
+  // events — far enough from here that the rebuild simply failed. One wrong
+  // field name was the entire reason a real position never reached the report.
+  // Validated rather than trusted, so the next shape change is a stated failure
+  // instead of a crash in another file.
+  const decimalsOf = (info) => {
+    const d = Number(info?.dec ?? info?.decimals);
+    return Number.isInteger(d) && d >= 0 && d <= 36 ? d : null;
+  };
+  const dec0 = decimalsOf(token0);
+  const dec1 = decimalsOf(token1);
+  if (dec0 === null || dec1 === null) return fail('token decimals could not be read');
+
   // A position that was staked earned emissions, and those claims are part of
   // its result. The NFT is gone but the voter still maps pool to gauge, so the
   // link is recoverable and the rebuild is not silently missing income.
@@ -393,8 +418,8 @@ export async function reconstructBurnedPosition({ protocol = 'aerodrome', tokenI
     gaugeAddress,
     tickLower,
     tickUpper,
-    token0: { address: String(addr0).toLowerCase(), symbol: token0.symbol, decimals: Number(token0.decimals) },
-    token1: { address: String(addr1).toLowerCase(), symbol: token1.symbol, decimals: Number(token1.decimals) },
+    token0: { address: String(addr0).toLowerCase(), symbol: token0.sym || token0.symbol || '???', decimals: dec0 },
+    token1: { address: String(addr1).toLowerCase(), symbol: token1.sym || token1.symbol || '???', decimals: dec1 },
     mintTxHash: mintLog.transactionHash,
   };
 }
