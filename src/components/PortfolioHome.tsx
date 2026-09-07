@@ -108,6 +108,20 @@ export function PortfolioHome({ address }: { address: string }) {
 
       {data.scenarios ? <ScenarioCard scenarios={data.scenarios} /> : null}
 
+      <Link href={`/report?address=${address}`} className="block">
+        <Card className="transition-colors hover:bg-bg-elevated/40">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <Label>Lifetime report</Label>
+              <p className="mt-1 text-sm leading-relaxed">
+                What impermanent loss has actually cost this wallet, and whether the fees covered it.
+              </p>
+            </div>
+            <span aria-hidden className="shrink-0 text-accent">&rarr;</span>
+          </div>
+        </Card>
+      </Link>
+
       <ObservationsCard observations={data.observations} address={address} />
 
       <Card>

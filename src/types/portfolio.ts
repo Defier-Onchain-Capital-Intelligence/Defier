@@ -239,6 +239,60 @@ export interface LifetimeStats {
   };
 }
 
+/** A token, and both what was earned in it and what that was worth. */
+export interface TokenTotal {
+  address: string;
+  symbol: string;
+  amount: number;
+  usd: number;
+}
+
+/**
+ * Everything this wallet has ever done with liquidity, for the report.
+ * Built by core/lifetime.js from reconstructed history.
+ */
+export interface LifetimeReport {
+  positionsOpened: number;
+  positionsClosed: number;
+  positionsOpen: number;
+
+  capitalDeployedUsd: number;
+  daysProviding: number;        // days with capital inside a pool, overlaps counted once
+  daysSinceFirst: number;
+  firstPositionAt: number | null;
+  averagePositionDays: number;
+
+  feesClaimedUsd: number;
+  feesUnclaimedUsd: number;
+  rewardsClaimedUsd: number;
+  rewardsPendingUsd: number;
+  earnedUsd: number;
+  gasUsd: number;
+
+  feesByToken: TokenTotal[];
+  rewardsByToken: TokenTotal[];
+
+  impermanentLossUsd: number;   // positive number: what divergence cost
+  divergenceUsd: number;        // signed
+  feesCoverIl: number | null;   // times over the fees covered it
+  netPnlUsd: number;
+  vsHoldingUsd: number;
+
+  beatHoldCount: number;
+  beatHoldPct: number;
+  best: { id: string; pair: string; vsHoldUsd: number; daysOpen: number } | null;
+  worst: { id: string; pair: string; vsHoldUsd: number; daysOpen: number } | null;
+
+  pairs: Array<{ pair: string; positions: number; capitalUsd: number; vsHoldUsd: number }>;
+
+  coverage: {
+    positionsRebuiltFromBurnedNfts: number;
+    positionsNotReconstructed: number;
+    complete: boolean;
+    historyLoaded: boolean;
+  };
+}
+
 /** One aggregation of P&L over a set of positions. */
 export interface PnlRollup {
   positions: number;

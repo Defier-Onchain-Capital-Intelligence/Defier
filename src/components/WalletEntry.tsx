@@ -9,13 +9,14 @@
  * than a banner claiming it is safe.
  */
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { ConnectButton } from '@/components/ConnectButton';
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 
 export function WalletEntry({ demoWallet }: { demoWallet?: string }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [value, setValue] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -24,7 +25,10 @@ export function WalletEntry({ demoWallet }: { demoWallet?: string }) {
       setError('That does not look like a Base address.');
       return;
     }
-    router.push(`/?address=${address.trim().toLowerCase()}`);
+    // Stay on whichever screen sent us here: the report entry point should not
+    // bounce someone to the portfolio and make them find their way back.
+    const target = pathname?.startsWith('/report') ? '/report' : '/';
+    router.push(`${target}?address=${address.trim().toLowerCase()}`);
   };
 
   return (
