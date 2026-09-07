@@ -294,42 +294,69 @@ const int24Of = (topicHex) => {
 };
 
 export async function reconstructBurnedPosition({ protocol = 'aerodrome', tokenId, nfpmAddr, wallet }) {
+  const fail = (reason) => ({ ok: false, tokenId: String(tokenId), reason });
+
   const resolvedNfpm = nfpmAddr || NFPM_ADDRS[protocol]?.[CHAIN];
-  if (!resolvedNfpm) return null;
+  if (!resolvedNfpm) return fail('no position manager for this protocol');
 
   const provider = await getProvider(CHAIN);
   const logsProvider = (await getLogsProvider(CHAIN)) || provider;
   const currentBlock = await withTimeout(logsProvider.getBlockNumber(), 8000);
 
   const mintLog = await findMintLog(resolvedNfpm, tokenId, wallet, currentBlock);
-  if (!mintLog?.transactionHash) return null;
+  if (!mintLog?.transactionHash) return fail('mint transaction not found');
 
   const receipt = await withTimeout(provider.getTransactionReceipt(mintLog.transactionHash), 12000)
     .catch(() => null);
-  if (!receipt?.logs?.length) return null;
+  if (!receipt?.logs?.length) return fail('mint receipt unavailable');
 
   const nfpmLower = resolvedNfpm.toLowerCase();
+  const isAero = protocol === 'aerodrome';
+
+  // First choice: the pool's own Mint log, which carries the pool address in
+  // `address` and the tick bounds in its indexed topics.
   const poolLog = receipt.logs.find((l) =>
     l.topics?.[0] === POOL_MINT_TOPIC && String(l.address).toLowerCase() !== nfpmLower);
-  if (!poolLog) return null;
 
-  const poolAddress = String(poolLog.address).toLowerCase();
-  const tickLower = poolLog.topics[2] != null ? int24Of(poolLog.topics[2]) : null;
-  const tickUpper = poolLog.topics[3] != null ? int24Of(poolLog.topics[3]) : null;
+  let poolAddress = poolLog ? String(poolLog.address).toLowerCase() : null;
+  let tickLower = poolLog?.topics?.[2] != null ? int24Of(poolLog.topics[2]) : null;
+  let tickUpper = poolLog?.topics?.[3] != null ? int24Of(poolLog.topics[3]) : null;
 
-  const isAero = protocol === 'aerodrome';
+  // Fallback: a position opened through a router or a zapper does not
+  // necessarily put a recognisable Mint in the receipt. Every other contract
+  // that logged in the transaction is a candidate; the pool is whichever one
+  // answers token0() and token1(). Slower, and it rescues the cases the clean
+  // path drops on the floor.
+  if (!poolAddress) {
+    const candidates = [...new Set(
+      receipt.logs
+        .map((l) => String(l.address).toLowerCase())
+        .filter((a) => a !== nfpmLower),
+    )].slice(0, 12);
+
+    for (const candidate of candidates) {
+      try {
+        const probe = new ethers.Contract(candidate, isAero ? POOL_ABI_AERO : POOL_ABI, provider);
+        const [a, b] = await withTimeout(Promise.all([probe.token0(), probe.token1()]), 6000);
+        if (a && b) { poolAddress = candidate; break; }
+      } catch (_) { /* not a pool */ }
+    }
+  }
+  if (!poolAddress) return fail('could not identify the pool from the mint transaction');
+
   const pool = new ethers.Contract(poolAddress, isAero ? POOL_ABI_AERO : POOL_ABI, provider);
   const [addr0, addr1] = await withTimeout(Promise.all([pool.token0(), pool.token1()]), 10000)
     .catch(() => [null, null]);
-  if (!addr0 || !addr1) return null;
+  if (!addr0 || !addr1) return fail('pool did not answer token0/token1');
 
   const [token0, token1] = await Promise.all([
     getTokenInfo(provider, addr0).catch(() => null),
     getTokenInfo(provider, addr1).catch(() => null),
   ]);
-  if (!token0 || !token1) return null;
+  if (!token0 || !token1) return fail('token metadata unavailable');
 
   return {
+    ok: true,
     poolAddress,
     tickLower,
     tickUpper,

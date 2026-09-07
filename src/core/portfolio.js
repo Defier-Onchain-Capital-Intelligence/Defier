@@ -259,11 +259,15 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
   //    claimed, so they are rebuilt from the chain rather than quietly dropped.
   let burnedRebuilt = 0;
   if (deep && burned.length) {
-    const rebuilt = await batchedRequests(burned.slice(0, 12), async (item) => {
+    const rebuilt = await batchedRequests(burned.slice(0, 20), async (item) => {
       const shape = await reconstructBurnedPosition({
         protocol: item.protocol, tokenId: item.tokenId, nfpmAddr: item.nfpm, wallet,
       });
-      if (!shape) return null;
+      // Why a rebuild failed is the only thing that makes the next one fixable.
+      if (!shape?.ok) {
+        trace('burnedRebuildFailed', { tokenId: item.tokenId, reason: shape?.reason || 'unknown' });
+        return null;
+      }
 
       const history = await getPositionHistory({
         protocol: item.protocol, tokenId: item.tokenId, nfpmAddr: item.nfpm,
@@ -271,7 +275,10 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
         token0: { address: shape.token0.address, decimals: shape.token0.decimals },
         token1: { address: shape.token1.address, decimals: shape.token1.decimals },
       });
-      if (!history.events.length) return null;
+      if (!history.events.length) {
+        trace('burnedRebuildFailed', { tokenId: item.tokenId, reason: 'no events found for the rebuilt position' });
+        return null;
+      }
 
       const position = toLpPosition({
         protocol: item.protocol,
