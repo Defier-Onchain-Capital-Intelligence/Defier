@@ -266,6 +266,30 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
   let burnedRebuilt = 0;
   if (deep && burned.length) {
     const rebuilt = await batchedRequests(burned.slice(0, 20), async (item) => {
+      // Everything in here is wrapped, because batchedRequests reports a thrown
+      // error as a rejected promise and the loop below only reads fulfilled
+      // ones. A throw therefore vanished completely: no position, no reason, no
+      // trace entry. The rebuild failed silently for exactly that reason and it
+      // took a diagnostic endpoint to notice the absence of an error.
+      try {
+        return await rebuildOne(item);
+      } catch (err) {
+        trace('burnedRebuildFailed', {
+          tokenId: item.tokenId,
+          reason: `threw: ${String(err?.message || err).slice(0, 160)}`,
+        });
+        return null;
+      }
+    }, 2, 150);
+
+    for (const r of rebuilt) {
+      if (r.status === 'fulfilled' && r.value) { positions.push(r.value); burnedRebuilt += 1; }
+      else if (r.status === 'rejected') {
+        trace('burnedRebuildFailed', { reason: `rejected: ${String(r.reason).slice(0, 160)}` });
+      }
+    }
+
+    async function rebuildOne(item) {
       const shape = await reconstructBurnedPosition({
         protocol: item.protocol, tokenId: item.tokenId, nfpmAddr: item.nfpm, wallet,
       });
@@ -316,10 +340,6 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
       position.pnl = computePositionPnl(position);
       position.strategies = compareStrategies(position);
       return position;
-    }, 2, 150);
-
-    for (const r of rebuilt) {
-      if (r.status === 'fulfilled' && r.value) { positions.push(r.value); burnedRebuilt += 1; }
     }
   }
 
