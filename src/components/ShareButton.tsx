@@ -2,11 +2,17 @@
 /**
  * Share the report.
  *
- * The privacy rule is absolute and it is why this component exists rather than a
- * plain link: the shared text and the card image carry the figure and the period,
- * never the address. At most the last four characters, which identify nothing.
- * Somebody posting that they lost money should not also be publishing which
- * wallet lost it.
+ * The privacy rule is absolute and it is why this component exists rather than
+ * a plain link: the shared text and the card image carry the figure and the
+ * period, never the address. At most the last four characters, which identify
+ * nothing. Somebody posting that they lost money should not also be publishing
+ * which wallet lost it.
+ *
+ * Pressing share mints a card first. The card's figures are read by the server
+ * from the engine, not sent from here, so a shared DeFier card is evidence
+ * rather than a claim — there is no way for a browser to choose the number that
+ * ends up on it. If minting fails the share still happens, pointing at the
+ * report instead of a card.
  *
  * Inside Base App it composes a cast; on the web it opens X. Same text, same
  * restraint.
@@ -14,63 +20,61 @@
 import { useState } from 'react';
 import { useComposeCast } from '@coinbase/onchainkit/minikit';
 import type { LifetimeReport } from '@/types/portfolio';
-import { usd } from '@/lib/format';
+import { figuresFrom, shareText } from '@/lib/reportCopy';
 
-const SITE = 'https://defier-alpha.vercel.app';
-
-function shareText(l: LifetimeReport): string {
-  const il = usd(l.impermanentLossUsd);
-  const earned = usd(l.earnedUsd);
-  // Never claim a scope the report did not prove. "Every position I have ever
-  // opened" is a strong sentence and it has to be true when it is posted.
-  const scope = l.coverage.complete
-    ? 'every liquidity position I have ever opened on Base'
-    : `${l.positionsOpened} of my liquidity positions on Base`;
-
-  if (l.divergenceGainUsd > 0) {
-    return `I rebuilt ${scope}.\n\n`
-      + `Impermanent loss cost me nothing: divergence went my way by ${usd(l.divergenceGainUsd)} `
-      + `across ${l.positionsOpened} positions, plus ${earned} in fees.\n\n`
-      + `Almost no LP knows this number for their own wallet.`;
-  }
-
-  if (l.impermanentLossUsd <= 0) {
-    return `I checked ${scope}.\n\n`
-      + `Earned ${earned} in fees and emissions, with no divergence from holding.\n\n`
-      + `Most LPs have never seen this number for their own wallet.`;
-  }
-
-  const covered = l.feesCoverIl;
-  const verdict = covered != null && covered >= 1
-    ? `My fees covered it ${covered.toFixed(1)}x over.`
-    : `My fees did not cover it.`;
-
-  return `Impermanent loss has cost me ${il} on Base.\n\n`
-    + `${verdict} ${earned} earned across ${l.positionsOpened} positions.\n\n`
-    + `Almost no LP knows this number for their own wallet. I found mine in about a minute.`;
-}
+const SITE = process.env.NEXT_PUBLIC_APP_URL || 'https://defier-alpha.vercel.app';
 
 export function ShareButton({ lifetime, address }: { lifetime: LifetimeReport; address: string }) {
   const { composeCast } = useComposeCast();
   const [copied, setCopied] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [cardId, setCardId] = useState<string | null>(null);
 
   // Never the address. The last four identify nothing and keep it personal.
   const tail = address.slice(-4);
-  const url = `${SITE}/report?tag=${tail}`;
-  const text = shareText(lifetime);
+  const figures = figuresFrom(lifetime, tail, Math.floor(Date.now() / 1000));
+  const text = shareText(figures);
 
-  const onShare = () => {
+  const fallbackUrl = `${SITE}/report?tag=${tail}`;
+
+  /** The card link if we can mint one, else the report link. Never blocks the share. */
+  async function urlToShare(): Promise<string> {
+    if (cardId) return `${SITE}/c/${cardId}`;
+    try {
+      const res = await fetch('/api/card', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ address }),
+      });
+      const json = await res.json();
+      if (res.ok && json?.id) {
+        setCardId(json.id);
+        return `${SITE}/c/${json.id}`;
+      }
+    } catch (_) { /* storage down: share the report instead */ }
+    return fallbackUrl;
+  }
+
+  const onShare = async () => {
+    setBusy(true);
+    const url = await urlToShare();
+    setBusy(false);
+
     try {
       composeCast({ text, embeds: [url] });
       return;
     } catch (_) {
       // Not inside Base App: fall through to X.
     }
-    const intent = `https://x.com/intent/post?text=${encodeURIComponent(`${text}\n\n`)}&url=${encodeURIComponent(url)}`;
+    const intent = `https://x.com/intent/post?text=${encodeURIComponent(`${text}\n\n`)}`
+      + `&url=${encodeURIComponent(url)}`;
     window.open(intent, '_blank', 'noopener,noreferrer');
   };
 
   const onCopy = async () => {
+    setBusy(true);
+    const url = await urlToShare();
+    setBusy(false);
     try {
       await navigator.clipboard.writeText(`${text}\n\n${url}`);
       setCopied(true);
@@ -86,10 +90,10 @@ export function ShareButton({ lifetime, address }: { lifetime: LifetimeReport; a
       </p>
 
       <div className="mt-3 flex gap-2">
-        <button type="button" onClick={onShare} className="btn-primary flex-1">
-          Share
+        <button type="button" onClick={onShare} disabled={busy} className="btn-primary flex-1 disabled:opacity-60">
+          {busy ? 'Preparing…' : 'Share'}
         </button>
-        <button type="button" onClick={onCopy} className="btn-ghost px-4">
+        <button type="button" onClick={onCopy} disabled={busy} className="btn-ghost px-4 disabled:opacity-60">
           {copied ? 'Copied' : 'Copy'}
         </button>
       </div>
@@ -97,6 +101,17 @@ export function ShareButton({ lifetime, address }: { lifetime: LifetimeReport; a
       <p className="mt-3 whitespace-pre-line rounded-xl bg-bg-elevated p-3 text-[0.6875rem] leading-relaxed text-ink-secondary">
         {text}
       </p>
+
+      {cardId ? (
+        <a
+          href={`/c/${cardId}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-2 block text-center text-[0.6875rem] text-accent"
+        >
+          See the card
+        </a>
+      ) : null}
     </div>
   );
 }

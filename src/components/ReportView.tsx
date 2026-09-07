@@ -18,6 +18,7 @@
 import Link from 'next/link';
 import type { LifetimeReport } from '@/types/portfolio';
 import { usd, pct, amount, relativeDays, dateOf, toneOf } from '@/lib/format';
+import { figuresFrom, reportHeadline } from '@/lib/reportCopy';
 import { Card, Label, Skeleton, EmptyState, BackLink } from '@/components/ui/Primitives';
 import { InfoDot } from '@/components/ui/InfoDot';
 import { TokenLogo } from '@/components/ui/TokenLogo';
@@ -55,29 +56,12 @@ export function ReportView({ address }: { address: string }) {
     );
   }
 
-  const covered = l.feesCoverIl;
-  const gained = l.divergenceGainUsd > 0;
-
-  // Divergence has two directions and only one of them has a famous name. A
-  // pool that converted into the side that fell less leaves you AHEAD of
-  // holding, and reporting that as "no impermanent loss" throws away the more
-  // interesting half of what actually happened.
-  // "All time" is a claim, and we only make it when the search actually covered
-  // this wallet's whole history. Otherwise the label names the real scope: the
-  // positions we could measure, from the first one we found.
-  const scope = l.coverage.complete
-    ? 'all time'
-    : l.firstPositionAt ? `since ${dateOf(l.firstPositionAt)}` : 'so far';
-  const headlineLabel = gained ? `Divergence, ${scope}` : `Impermanent loss, ${scope}`;
-  const headlineValue = gained ? l.divergenceGainUsd : l.impermanentLossUsd;
-  const headlineTone = gained ? 'text-gain' : 'text-loss';
-  const verdict = gained
-    ? 'Providing liquidity left you ahead of simply holding, before fees. The pool converted towards whichever side was falling less.'
-    : l.impermanentLossUsd <= 0
-      ? 'Your positions never diverged from simply holding.'
-      : covered != null && covered >= 1
-        ? `Your fees covered it ${covered.toFixed(1)}x over.`
-        : 'The fees did not cover it.';
+  // Headline, scope and caveat come from lib/reportCopy, which the share card
+  // also uses. A card that phrased the same result more flatteringly than this
+  // screen would be marketing rather than a report, so both read one source.
+  const h = reportHeadline(figuresFrom(l, address.slice(-4), 0));
+  const gained = h.gained;
+  const headlineValue = h.value;
 
   return (
     <div className="space-y-4">
@@ -86,23 +70,16 @@ export function ReportView({ address }: { address: string }) {
       <Coverage coverage={l.coverage} counted={l.positionsOpened} />
 
       <header>
-        <Label>{headlineLabel}</Label>
-        <p className={`hero-num mt-1 ${headlineTone}`}>
-          {gained ? '+' : ''}{usd(headlineValue)}
-        </p>
-        <p className="mt-2 text-[0.9375rem] leading-relaxed">{verdict}</p>
-        <p className="mt-1 text-xs text-ink-muted">
-          Across {l.positionsOpened} {l.positionsOpened === 1 ? 'position' : 'positions'} we could
-          measure completely
-          {l.coverage.complete && l.firstPositionAt ? `, since ${dateOf(l.firstPositionAt)}` : ''}
-        </p>
-        {l.coverage.concentrated ? (
+        <Label>{h.label}</Label>
+        <p className={`hero-num mt-1 ${gained ? 'text-gain' : 'text-loss'}`}>{h.display}</p>
+        <p className="mt-2 text-[0.9375rem] leading-relaxed">{h.verdict}</p>
+        <p className="mt-1 text-xs text-ink-muted">{h.across}</p>
+        {h.caveat ? (
           <p className="mt-2 rounded-xl border border-bg-border bg-bg-elevated p-3 text-xs leading-relaxed text-ink-secondary">
-            {l.coverage.concentrated.sharePct >= 100
-              ? 'All'
-              : `${l.coverage.concentrated.sharePct.toFixed(1)}%`} of the capital behind this figure
-            is one position, {l.coverage.concentrated.pair}. It is mostly a statement about that
-            trade rather than about how you provide liquidity.
+            {h.caveat}
+            {l.coverage.concentrated
+              ? ' It is mostly a statement about that trade rather than about how you provide liquidity.'
+              : ''}
           </p>
         ) : null}
       </header>
