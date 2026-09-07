@@ -109,7 +109,7 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
 
       <Card>
         <div className="grid grid-cols-2 gap-4">
-          <Tile label="Earned in fees" value={usd(f.earnedUsd)} />
+          <Tile label="Fees and emissions" value={usd(f.earnedUsd)} />
           <Tile label="Capital deployed" value={usd(f.capitalDeployedUsd)} />
           <Tile label="Beat holding" value={`${f.beatHoldCount} of ${f.positionsOpened}`} />
           <Tile label="Providing for" value={relativeDays(f.daysProviding)} />

@@ -103,8 +103,8 @@ export function reportHeadline(f: HeadlineInput): Headline {
     : f.impermanentLossUsd <= 0
       ? 'Your positions never diverged from simply holding.'
       : covered != null && covered >= 1
-        ? `Your fees covered it ${covered.toFixed(1)}x over.`
-        : 'The fees did not cover it.';
+        ? `What you earned covered it ${covered.toFixed(1)}x over.`
+        : 'What you earned did not cover it.';
 
   const noun = f.positionsOpened === 1 ? 'position' : 'positions';
   const since = f.complete && f.firstPositionAt ? `, since ${dateOf(f.firstPositionAt)}` : '';
@@ -138,7 +138,7 @@ export function shareText(f: HeadlineInput & Pick<CardFigures, 'earnedUsd'>): st
   if (f.divergenceGainUsd > 0) {
     return `I rebuilt ${scope}.\n\n`
       + `Impermanent loss cost me nothing: divergence went my way by ${usd(f.divergenceGainUsd)} `
-      + `across ${f.positionsOpened} positions, plus ${earned} in fees.\n\n`
+      + `across ${f.positionsOpened} positions, plus ${earned} in fees and emissions.\n\n`
       + `Almost no LP knows this number for their own wallet.`;
   }
 
@@ -150,8 +150,8 @@ export function shareText(f: HeadlineInput & Pick<CardFigures, 'earnedUsd'>): st
 
   const covered = f.feesCoverIl;
   const verdict = covered != null && covered >= 1
-    ? `My fees covered it ${covered.toFixed(1)}x over.`
-    : 'My fees did not cover it.';
+    ? `My fees and emissions covered it ${covered.toFixed(1)}x over.`
+    : 'My fees and emissions did not cover it.';
 
   return `Impermanent loss has cost me ${usd(f.impermanentLossUsd)} on Base.\n\n`
     + `${verdict} ${earned} earned across ${f.positionsOpened} positions.\n\n`

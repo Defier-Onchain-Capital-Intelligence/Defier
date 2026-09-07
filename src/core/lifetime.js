@@ -183,6 +183,10 @@ export function computeLifetime(positions, coverage = {}) {
     divergenceGainUsd,
     divergenceUsd,
     /** How many times over the fees covered the divergence. Null when there was none. */
+    // Named for fees, but the numerator is everything earned — emissions
+    // included, which on an Aerodrome wallet is usually most of it. Anything
+    // rendering this must say "earned", never "fees", or it states a falsehood
+    // about where the money came from.
     feesCoverIl: impermanentLossUsd > 0 ? earnedUsd / impermanentLossUsd : null,
     netPnlUsd: sum(withHistory.map((p) => p.pnl.netPnlUsd)),
     vsHoldingUsd: sum(withHistory.map((p) => p.pnl.lpVsHodlUsd)),

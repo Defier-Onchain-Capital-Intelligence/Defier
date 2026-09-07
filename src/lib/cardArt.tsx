@@ -104,7 +104,7 @@ export function cardArt(f: CardFigures, opts: { tall?: boolean } = {}) {
       <div style={{ display: 'flex', flex: 1 }} />
 
       <div style={{ display: 'flex', flexShrink: 0, paddingTop: 26, borderTop: `1px solid ${BORDER}` }}>
-        <Stat label="Earned in fees" value={usd(f.earnedUsd)} />
+        <Stat label="Fees and emissions" value={usd(f.earnedUsd)} />
         <Stat label="Capital deployed" value={usd(f.capitalDeployedUsd)} />
         <Stat label="Beat holding" value={`${f.beatHoldCount} of ${f.positionsOpened}`} />
         <Stat label="Providing for" value={relativeDays(f.daysProviding)} />
