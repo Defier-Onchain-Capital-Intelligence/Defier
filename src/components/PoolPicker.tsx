@@ -78,9 +78,12 @@ export function PoolPicker({ onPick }: { onPick: (pool: PoolDetail) => void }) {
                 disabled={loading != null}
                 className="flex w-full items-center gap-2.5 rounded-xl bg-bg-elevated p-2.5 text-left disabled:opacity-50"
               >
+                {/* PoolRow.tokens holds addresses, not symbols. The address is
+                    what finds the logo — symbols are mutable and several pairs
+                    share one — and the readable half comes from the pair name. */}
                 <TokenPair
-                  token0={{ symbol: p.tokens?.[0] }}
-                  token1={{ symbol: p.tokens?.[1] }}
+                  token0={{ address: p.tokens?.[0], symbol: p.symbol?.split('-')[0] }}
+                  token1={{ address: p.tokens?.[1], symbol: p.symbol?.split('-')[1] }}
                   size={22}
                 />
                 <span className="min-w-0 flex-1">
