@@ -30,14 +30,18 @@ export function MoneyStat({ label, value, signed = false, sub }: {
 }
 
 /** In range, out of range, staked, closed. Read at a glance, not read word by word. */
-export function StatusPill({ inRange, staked, closed }: {
-  inRange: boolean; staked: boolean; closed: boolean;
+export function StatusPill({ inRange, staked, closed, kind }: {
+  inRange: boolean; staked: boolean; closed: boolean; kind?: string;
 }) {
   if (closed) return <span className="pill-muted">Closed</span>;
   return (
     <span className="inline-flex items-center gap-1.5">
       {staked ? <span className="pill-stock">Staked</span> : null}
-      <span className={inRange ? 'pill-gain' : 'pill-warn'}>{inRange ? 'In range' : 'Out of range'}</span>
+      {/* A Basic pool has no range: saying "in range" would be true and
+          misleading, because it implies there is one to leave. */}
+      {kind === 'amm'
+        ? <span className="pill-gain">Basic pool</span>
+        : <span className={inRange ? 'pill-gain' : 'pill-warn'}>{inRange ? 'In range' : 'Out of range'}</span>}
     </span>
   );
 }

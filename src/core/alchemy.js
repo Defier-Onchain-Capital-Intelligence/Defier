@@ -131,3 +131,90 @@ export async function getEverOwnedTokenIds({ contractAddress, wallet }) {
   const ids = new Set([...(received || []), ...(sent || [])].map((t) => t.tokenId));
   return [...ids].map((tokenId) => ({ tokenId }));
 }
+
+
+/**
+ * Every ERC-20 this wallet currently holds a non-zero balance of.
+ *
+ * The entry point for finding AMM positions. Aerodrome's Basic pools issue no
+ * NFT — being in one means holding that pool's own ERC-20 — so there is no
+ * registry to consult and no token list that would contain them. What the wallet
+ * holds IS the position, and this is the only way to enumerate that without
+ * knowing every pool address in advance.
+ *
+ * @returns {Promise<Array<{address: string, balance: string}>|null>}
+ */
+export async function getErc20Balances({ wallet, max = 400 }) {
+  if (!HAS_ALCHEMY) return null;
+
+  const out = [];
+  let pageKey;
+
+  for (let page = 0; page < 6; page++) {
+    const params = pageKey ? [wallet, 'erc20', { pageKey }] : [wallet, 'erc20'];
+    const result = await rpc('alchemy_getTokenBalances', params, 20000);
+    if (result === null) return out.length ? out : null;
+
+    for (const b of result.tokenBalances || []) {
+      const raw = b.tokenBalance;
+      if (!raw || /^0x0*$/.test(raw)) continue;
+      out.push({ address: String(b.contractAddress).toLowerCase(), balance: raw });
+      if (out.length >= max) return out;
+    }
+
+    pageKey = result.pageKey;
+    if (!pageKey) break;
+  }
+
+  return out;
+}
+
+/**
+ * ERC-20 transfers of one contract in or out of a wallet.
+ * Used to reconstruct an AMM position that has already been fully withdrawn:
+ * the LP token is gone, its Transfer history is not.
+ */
+export async function getErc20Transfers({ contractAddress, wallet, max = 300 }) {
+  if (!HAS_ALCHEMY) return null;
+
+  const base = {
+    fromBlock: '0x0',
+    toBlock: 'latest',
+    contractAddresses: [contractAddress],
+    category: ['erc20'],
+    withMetadata: false,
+    excludeZeroValue: true,
+    maxCount: '0x3e8',
+    order: 'asc',
+  };
+
+  const collect = async (direction) => {
+    const params = { ...base, ...direction };
+    const out = [];
+    let pageKey;
+    for (let page = 0; page < 4; page++) {
+      const result = await rpc('alchemy_getAssetTransfers', [pageKey ? { ...params, pageKey } : params]);
+      if (result === null) return null;
+      for (const t of result.transfers || []) {
+        out.push({
+          blockNumber: parseInt(t.blockNum, 16),
+          txHash: t.hash,
+          from: (t.from || '').toLowerCase(),
+          to: (t.to || '').toLowerCase(),
+          value: t.value,
+        });
+        if (out.length >= max) return out;
+      }
+      pageKey = result.pageKey;
+      if (!pageKey) break;
+    }
+    return out;
+  };
+
+  const [received, sent] = await Promise.all([
+    collect({ toAddress: wallet }),
+    collect({ fromAddress: wallet }),
+  ]);
+  if (received === null && sent === null) return null;
+  return [...(received || []), ...(sent || [])].sort((a, b) => a.blockNumber - b.blockNumber);
+}

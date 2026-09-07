@@ -82,7 +82,14 @@ export interface StrategyComparison {
 
 export interface LpPosition {
   id: string;                   // `${protocol}:${tokenId}`
-  protocol: 'aerodrome' | 'uniswap-v3';
+  protocol: 'aerodrome' | 'aerodrome-v1' | 'uniswap-v3';
+  /** 'cl' is concentrated liquidity with a range and an NFT; 'amm' is a Basic
+   *  pool: no NFT, no range, always both sides. They are read differently. */
+  kind?: 'cl' | 'amm';
+  /** Basic pools only: whether it is a Stable or a Volatile pool. */
+  stable?: boolean;
+  /** Basic pools only: share of the whole pool, as a percentage. */
+  poolSharePct?: number;
   tokenId: string;
   poolAddress: string;
   token0: TokenRef;

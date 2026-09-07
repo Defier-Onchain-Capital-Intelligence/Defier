@@ -322,9 +322,10 @@ function Coverage({ coverage, counted }: {
     return (
       <div className="rounded-xl border border-gain/25 bg-gain/[0.05] p-3">
         <p className="text-xs leading-relaxed text-ink-secondary">
-          Every liquidity position this wallet has opened on Aerodrome or Uniswap on Base was
-          rebuilt and measured. Pools that do not issue a position NFT, such as Aerodrome&rsquo;s
-          Basic pools, are not covered yet.
+          Every concentrated liquidity position this wallet has opened on Aerodrome or Uniswap on
+          Base was rebuilt and measured, including ones whose NFT was burned. Basic pool positions
+          are detected and valued, but their history is not reconstructed yet, so they are not in
+          these totals.
         </p>
       </div>
     );
@@ -358,7 +359,8 @@ function Coverage({ coverage, counted }: {
           </li>
         ) : null}
         <li className="text-ink-muted">
-          Aerodrome&rsquo;s Basic pools issue no position NFT and are not covered yet either way.
+          Basic pool positions are detected and valued but have no reconstructed history yet, so
+          they never enter these totals.
         </li>
       </ul>
       {coverage.excluded.length ? (

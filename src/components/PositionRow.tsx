@@ -30,7 +30,7 @@ export function PositionRow({ position, wallet }: { position: LpPosition; wallet
             {hasStock ? <span className="ml-2 pill-stock">Stock</span> : null}
           </p>
           <p className="mt-1">
-            <StatusPill inRange={position.inRange} staked={position.staked} closed={position.closed} />
+            <StatusPill inRange={position.inRange} staked={position.staked} closed={position.closed} kind={position.kind} />
           </p>
           </div>
         </div>
@@ -44,7 +44,11 @@ export function PositionRow({ position, wallet }: { position: LpPosition; wallet
         </div>
       </div>
 
-      {!position.closed && position.priceUpper > position.priceLower ? (
+      {position.kind === 'amm' ? (
+        <p className="mt-2 text-[0.6875rem] text-ink-muted">
+          Basic pool · always both sides, no range to leave
+        </p>
+      ) : !position.closed && position.priceUpper > position.priceLower ? (
         <div className="mt-2.5 flex items-center gap-3">
           <RangeBar
             lower={position.priceLower}

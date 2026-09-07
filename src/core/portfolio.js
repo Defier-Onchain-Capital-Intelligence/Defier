@@ -26,6 +26,7 @@ import { fetchTokenPrice } from './prices.js';
 import { getStockHoldings } from './stocks.js';
 import { getTokenHoldings } from './tokens.js';
 import { getLendingPositions } from './lending.js';
+import { getAmmPositions } from './amm.js';
 
 const CHAIN = 'base';
 
@@ -341,6 +342,51 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
       position.strategies = compareStrategies(position);
       return position;
     }
+  }
+
+  // 6. Aerodrome's Basic pools. No NFT, so none of the passes above can see them:
+  //    being in one means holding the pool's own ERC-20. Half of Aerodrome lives
+  //    here and skipping it made "every position you have ever opened" false.
+  let ammUnavailable = false;
+  try {
+    const amm = await getAmmPositions(wallet);
+    ammUnavailable = amm.unavailable;
+    trace('ammChecked', { candidates: amm.checked, found: amm.positions.length });
+
+    const aeroPrice = amm.positions.some((x) => x.staked)
+      ? await fetchTokenPrice(CHAIN, BASE_TOKENS.AERO).catch(() => null)
+      : null;
+
+    for (const raw of amm.positions) {
+      const pendingAero = raw.pendingRewardsRaw && raw.pendingRewardsRaw !== '0'
+        ? Number(ethers.utils.formatUnits(raw.pendingRewardsRaw, 18))
+        : 0;
+      positions.push({
+        ...raw,
+        tokenId: raw.poolAddress,
+        tickLower: 0, tickUpper: 0, currentTick: 0,
+        priceLower: 0, priceUpper: 0, currentPrice: 0,
+        liquidity: raw.shares,
+        incentivesPending: pendingAero > 0
+          ? { amount: pendingAero, usd: aeroPrice ? pendingAero * aeroPrice : 0 }
+          : null,
+        openedAt: null,
+        events: [],
+        pnl: null,
+        strategies: null,
+        // Live state is exact; the history that would give this position a P&L
+        // is not reconstructed yet, and the position says so rather than
+        // appearing beside NFT positions as though it were equally measured.
+        confidence: 'partial',
+        notes: ['Basic pool. Its current value is exact; its history is not reconstructed yet, so it has no P&L.'],
+      });
+    }
+  } catch (err) {
+    ammUnavailable = true;
+    trace('ammFailed', String(err?.message || err).slice(0, 160));
+  }
+  if (ammUnavailable) {
+    warnings.push('We could not check this wallet for Aerodrome Basic pool positions, so some liquidity may be missing.');
   }
 
   /** What the all time figures could not see. Stated, never rounded away. */

@@ -47,7 +47,7 @@ export function PositionDetail({ id, wallet }: { id: string; wallet: string }) {
           <h1 className="text-lg font-semibold">{pos.symbol}</h1>
         </div>
         <div className="mt-1.5 flex items-center gap-2">
-          <StatusPill inRange={pos.inRange} staked={pos.staked} closed={pos.closed} />
+          <StatusPill inRange={pos.inRange} staked={pos.staked} closed={pos.closed} kind={pos.kind} />
           {pos.token0.isTokenizedStock || pos.token1.isTokenizedStock
             ? <span className="pill-stock">Tokenized stock</span> : null}
         </div>
@@ -85,9 +85,9 @@ export function PositionDetail({ id, wallet }: { id: string; wallet: string }) {
         ) : null}
       </Card>
 
-      {!pos.closed ? <RangeCard pos={pos} /> : null}
+      {!pos.closed && pos.kind !== 'amm' ? <RangeCard pos={pos} /> : null}
 
-      {!pos.closed ? <AlertToggle pos={pos} wallet={wallet} /> : null}
+      {!pos.closed && pos.kind !== 'amm' ? <AlertToggle pos={pos} wallet={wallet} /> : null}
 
       {pos.strategies ? <StrategyTable strategies={pos.strategies} /> : null}
 
