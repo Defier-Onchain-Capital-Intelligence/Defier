@@ -77,15 +77,7 @@ export function ReportView({ address }: { address: string }) {
     <div className="space-y-4">
       <BackLink href={`/?address=${address}`}>Portfolio</BackLink>
 
-      {!l.coverage.complete ? (
-        <div className="rounded-xl border border-warn/25 bg-warn/[0.06] p-3">
-          <p className="text-xs leading-relaxed text-ink-secondary">
-            {l.coverage.positionsNotReconstructed > 0
-              ? `${l.coverage.positionsNotReconstructed} closed ${l.coverage.positionsNotReconstructed === 1 ? 'position' : 'positions'} could not be rebuilt from the chain, so these totals cover less than this wallet has actually done.`
-              : 'History is still loading, so these totals are incomplete.'}
-          </p>
-        </div>
-      ) : null}
+      <Coverage coverage={l.coverage} counted={l.positionsOpened} />
 
       <header>
         <Label>{headlineLabel}</Label>
@@ -94,9 +86,17 @@ export function ReportView({ address }: { address: string }) {
         </p>
         <p className="mt-2 text-[0.9375rem] leading-relaxed">{verdict}</p>
         <p className="mt-1 text-xs text-ink-muted">
-          Across {l.positionsOpened} {l.positionsOpened === 1 ? 'position' : 'positions'} on Base
-          {l.firstPositionAt ? ` since ${dateOf(l.firstPositionAt)}` : ''}
+          Across {l.positionsOpened} {l.positionsOpened === 1 ? 'position' : 'positions'} we could
+          measure completely
+          {l.firstPositionAt ? `, since ${dateOf(l.firstPositionAt)}` : ''}
         </p>
+        {l.coverage.concentrated ? (
+          <p className="mt-2 rounded-xl border border-bg-border bg-bg-elevated p-3 text-xs leading-relaxed text-ink-secondary">
+            {l.coverage.concentrated.sharePct.toFixed(0)}% of the capital behind this figure is one
+            position, {l.coverage.concentrated.pair}. It is mostly a statement about that trade
+            rather than about how you provide liquidity.
+          </p>
+        ) : null}
       </header>
 
       <Card>
@@ -288,6 +288,72 @@ function Stat({ label, value, sub, info }: {
       </p>
       <p className="mt-0.5 font-semibold tnum">{value}</p>
       {sub ? <p className="text-[0.6875rem] text-ink-muted">{sub}</p> : null}
+    </div>
+  );
+}
+
+
+/**
+ * What the report could not measure, at the top, before any total.
+ *
+ * The alternative is to sum everything and hope: five good positions and two
+ * guesses produce the same shape of number as five good ones, with an unknown
+ * error and an implied claim of completeness. For a product whose entire pitch
+ * is doing this arithmetic correctly, that trade is never worth making.
+ */
+function Coverage({ coverage, counted }: {
+  coverage: LifetimeReport['coverage'];
+  counted: number;
+}) {
+  const missing = coverage.positionsNotReconstructed;
+  const excluded = coverage.positionsExcluded;
+
+  if (coverage.complete) {
+    return (
+      <div className="rounded-xl border border-gain/25 bg-gain/[0.05] p-3">
+        <p className="text-xs leading-relaxed text-ink-secondary">
+          Every liquidity position this wallet has opened on Aerodrome or Uniswap on Base was
+          rebuilt and measured. Pools that do not issue a position NFT, such as Aerodrome&rsquo;s
+          Basic pools, are not covered yet.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-warn/25 bg-warn/[0.06] p-3">
+      <p className="text-xs font-medium text-ink-primary">What these totals cover</p>
+      <ul className="mt-1.5 space-y-1 text-xs leading-relaxed text-ink-secondary">
+        <li>
+          Measured completely: {counted} {counted === 1 ? 'position' : 'positions'}. Only these are
+          in the figures below.
+        </li>
+        {excluded > 0 ? (
+          <li>
+            Left out: {excluded} {excluded === 1 ? 'position' : 'positions'} we found but could not
+            value with confidence. Counting them would put an unknown error inside a total that
+            looks exact.
+          </li>
+        ) : null}
+        {missing > 0 ? (
+          <li>
+            Not rebuilt: {missing} closed {missing === 1 ? 'position whose' : 'positions whose'} NFT
+            was burned and whose pool we could not identify from its opening transaction.
+          </li>
+        ) : null}
+        <li className="text-ink-muted">
+          Aerodrome&rsquo;s Basic pools issue no position NFT and are not covered yet either way.
+        </li>
+      </ul>
+      {coverage.excluded.length ? (
+        <div className="mt-2 border-t border-bg-border pt-2">
+          {coverage.excluded.slice(0, 4).map((e) => (
+            <p key={e.id} className="text-[0.6875rem] text-ink-muted">
+              {e.pair}: {e.reason}
+            </p>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -355,9 +355,23 @@ export async function reconstructBurnedPosition({ protocol = 'aerodrome', tokenI
   ]);
   if (!token0 || !token1) return fail('token metadata unavailable');
 
+  // A position that was staked earned emissions, and those claims are part of
+  // its result. The NFT is gone but the voter still maps pool to gauge, so the
+  // link is recoverable and the rebuild is not silently missing income.
+  let gaugeAddress = null;
+  try {
+    const voterAddr = VOTER_ADDRS['aerodrome']?.[CHAIN];
+    if (voterAddr && isAero) {
+      const voter = new ethers.Contract(voterAddr, VOTER_ABI, provider);
+      const g = await withTimeout(voter.gauges(poolAddress), 6000);
+      if (g && g !== ethers.constants.AddressZero) gaugeAddress = String(g).toLowerCase();
+    }
+  } catch (_) { /* no gauge, or the voter did not answer */ }
+
   return {
     ok: true,
     poolAddress,
+    gaugeAddress,
     tickLower,
     tickUpper,
     token0: { address: String(addr0).toLowerCase(), symbol: token0.symbol, decimals: Number(token0.decimals) },

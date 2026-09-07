@@ -271,7 +271,7 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
 
       const history = await getPositionHistory({
         protocol: item.protocol, tokenId: item.tokenId, nfpmAddr: item.nfpm,
-        gaugeAddress: undefined, wallet,
+        gaugeAddress: shape.gaugeAddress || undefined, wallet,
         token0: { address: shape.token0.address, decimals: shape.token0.decimals },
         token1: { address: shape.token1.address, decimals: shape.token1.decimals },
       });
@@ -296,6 +296,7 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
         feesUnclaimed: { token0: 0, token1: 0, usd: 0 },
       }, {
         staked: false,
+        gaugeAddress: shape.gaugeAddress || undefined,
         nfpmAddress: item.nfpm,
         events: history.events,
         openedAt: history.openedAt,

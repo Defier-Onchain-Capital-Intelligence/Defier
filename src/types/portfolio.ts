@@ -289,8 +289,13 @@ export interface LifetimeReport {
   coverage: {
     positionsRebuiltFromBurnedNfts: number;
     positionsNotReconstructed: number;
+    /** Rebuilt but with a gap we could not close. Named, never summed. */
+    positionsExcluded: number;
+    excluded: Array<{ id: string; pair: string; reason: string }>;
     complete: boolean;
     historyLoaded: boolean;
+    /** Set when one position holds 90% or more of the capital these totals rest on. */
+    concentrated: { pair: string; sharePct: number } | null;
   };
 }
 

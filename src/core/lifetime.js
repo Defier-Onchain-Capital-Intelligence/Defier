@@ -55,8 +55,28 @@ const AERO = { address: '0x940181a94a35a4569e4529a3cdfb74e38fd98631', symbol: 'A
  * @returns {import('../types/portfolio').LifetimeReport}
  */
 export function computeLifetime(positions, coverage = {}) {
-  const withHistory = (positions || []).filter((p) => p.pnl && p.events?.length);
   const now = Math.floor(Date.now() / 1000);
+
+  /**
+   * The rule: a position only counts towards a total if we can stand behind its
+   * numbers.
+   *
+   * A figure assembled from five good positions and two guesses is not a better
+   * answer than a figure from five — it is the same answer with an unknown error
+   * bar and a claim of completeness. Reporting "of your 7 positions I could
+   * measure 5" is worth more than a total nobody can trust, and it is the only
+   * version of this product worth shipping: the entire pitch is that we do the
+   * arithmetic nobody else does, correctly.
+   *
+   * So: full confidence, a deposit we could value, and the invariant intact.
+   * Everything else is counted, named, and kept out of the sums.
+   */
+  const reconstructed = (positions || []).filter((p) => p.pnl && p.events?.length);
+  const measured = reconstructed.filter(
+    (p) => p.pnl.confidence === 'full' && p.pnl.initialCapitalUsd > 0,
+  );
+  const unmeasured = reconstructed.filter((p) => !measured.includes(p));
+  const withHistory = measured;
 
   const feesByToken = new Map();
   const rewardsByToken = new Map();
@@ -126,6 +146,15 @@ export function computeLifetime(positions, coverage = {}) {
 
   const daysProviding = daysCovered(spans);
 
+  // A lifetime figure that rests almost entirely on one position is a fact about
+  // that position, not about the wallet, and the screen should not imply otherwise.
+  const capitals = withHistory.map((p) => Math.abs(p.pnl.initialCapitalUsd || 0));
+  const totalCapital = capitals.reduce((a, b) => a + b, 0);
+  const largestShare = totalCapital > 0 ? Math.max(...capitals, 0) / totalCapital : 0;
+  const dominant = withHistory.length > 1 && largestShare >= 0.9
+    ? ranked.find((p) => Math.abs(p.pnl.initialCapitalUsd || 0) === Math.max(...capitals))
+    : null;
+
   return {
     positionsOpened: withHistory.length,
     positionsClosed: withHistory.filter((p) => p.closed).length,
@@ -176,8 +205,19 @@ export function computeLifetime(positions, coverage = {}) {
     coverage: {
       positionsRebuiltFromBurnedNfts: coverage.burnedRebuilt ?? 0,
       positionsNotReconstructed: coverage.burnedMissed ?? 0,
-      complete: (coverage.burnedMissed ?? 0) === 0 && coverage.deep === true,
+      /** Found and rebuilt, but with a gap we could not close. Named, never summed. */
+      positionsExcluded: unmeasured.length,
+      excluded: unmeasured.map((p) => ({
+        id: p.id,
+        pair: p.symbol,
+        reason: p.pnl?.notes?.[0] || p.notes?.[0] || 'Something in this position could not be read.',
+      })),
+      complete: (coverage.burnedMissed ?? 0) === 0 && unmeasured.length === 0 && coverage.deep === true,
       historyLoaded: coverage.deep === true,
+      /** Set when one position holds 90% or more of the capital these totals rest on. */
+      concentrated: dominant
+        ? { pair: dominant.symbol, sharePct: largestShare * 100 }
+        : null,
     },
   };
 }

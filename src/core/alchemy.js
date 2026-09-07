@@ -87,19 +87,35 @@ export async function getErc721Transfers({ contractAddress, fromAddress, toAddre
 }
 
 /**
- * Block where a given position NFT was minted to this wallet.
- * @returns {Promise<{blockNumber: number, txHash: string}|null>}
+ * Block where a given position NFT first reached this wallet.
+ *
+ * Asks only for transfers INTO the wallet and picks the earliest one for this
+ * token. It used to also filter on `fromAddress` being the zero address, which
+ * reads as "only mints" and is the obvious way to write it — and it returned
+ * nothing, because Alchemy does not treat a mint as a transfer from the zero
+ * address in that filter. The caller then fell through to scanning eth_getLogs
+ * backwards, which reaches roughly 150 days and quietly gave up on anything
+ * older. A position minted 164 days ago missed by twelve days and was reported
+ * as "could not be rebuilt".
+ *
+ * Transfers come back in ascending order, so the first hit is the mint whenever
+ * the wallet is the original owner, and the acquisition otherwise — which is the
+ * right answer either way, since that is when this wallet's history starts.
+ *
+ * @returns {Promise<{blockNumber: number, txHash: string, isMint: boolean}|null>}
  */
 export async function findMintViaTransfers({ contractAddress, wallet, tokenId }) {
-  const transfers = await getErc721Transfers({
-    contractAddress,
-    fromAddress: ZERO_ADDR,
-    toAddress: wallet,
-  });
+  const transfers = await getErc721Transfers({ contractAddress, toAddress: wallet });
   if (!transfers) return null;
   const target = String(tokenId);
-  const hit = transfers.find((t) => t.tokenId === target);
-  return hit ? { blockNumber: hit.blockNumber, txHash: hit.txHash } : null;
+  const hits = transfers.filter((t) => t.tokenId === target);
+  if (!hits.length) return null;
+  const first = hits.reduce((a, b) => (b.blockNumber < a.blockNumber ? b : a));
+  return {
+    blockNumber: first.blockNumber,
+    txHash: first.txHash,
+    isMint: first.from === ZERO_ADDR,
+  };
 }
 
 /**
