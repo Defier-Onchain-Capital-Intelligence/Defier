@@ -11,7 +11,7 @@
  */
 import { ethers } from 'ethers';
 import { scanWalletPositions, _enrichPosition } from './scanner.js';
-import { getStakedTokenIds, getWalletTokenIdsFromLogs, getPositionHistory, getPendingRewards, reconstructBurnedPosition } from './history.js';
+import { getStakedTokenIds, getWalletTokenIdsFromLogs, getPositionHistory, getPendingRewards, reconstructBurnedPosition, resolveGauges } from './history.js';
 import { computeExposure, classify } from './exposure.js';
 import { computeScenarios } from './scenarios.js';
 import { computeHoldings } from './holdings.js';
@@ -91,6 +91,36 @@ function toLpPosition(p, extra = {}) {
     confidence: extra.confidence ?? 'partial',
     notes: extra.notes ?? [],
   };
+}
+
+/**
+ * Remove claims a position saw but did not earn.
+ *
+ * Aerodrome's CL gauge emits ClaimRewards(from, amount): indexed by the wallet,
+ * not by the token id. A wallet with two positions in the same pool therefore
+ * finds the same claim in both event histories, and valuing both would report
+ * money that was paid once as though it had been paid twice.
+ *
+ * Each claim is kept on the earliest position still open when it happened and
+ * dropped everywhere else. A position burned before the claim never sees it in
+ * the first place, which getPositionHistory enforces. Which of two concurrent
+ * positions gets the claim does not change a lifetime total; counting it twice
+ * would.
+ */
+function dedupeClaimEvents(positions) {
+  const seen = new Set();
+  const ordered = [...positions].sort((a, b) => (a.openedAt || 0) - (b.openedAt || 0));
+
+  for (const position of ordered) {
+    if (!position.events?.length) continue;
+    position.events = position.events.filter((event) => {
+      if (event.type !== 'claim_rewards') return true;
+      const key = `${event.gauge || ''}|${event.txHash}|${event.logIndex ?? ''}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
 }
 
 /**
@@ -213,6 +243,33 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
     })),
   ];
 
+  // A position that was staked, paid emissions and later unstaked used to report
+  // none of them: the gauge address was only known as a by-product of asking
+  // which positions are staked TODAY, so nothing ever scanned that gauge for the
+  // claims. The voter still maps pool to gauge long after the position closed,
+  // so the address is resolved here for every Aerodrome position regardless of
+  // its current state, and one multicall covers the lot.
+  if (deep) {
+    const needGauge = candidates.filter(
+      (c) => !c.gaugeAddress && c.p?.protocol === 'aerodrome' && c.p?.poolAddress,
+    );
+    if (needGauge.length) {
+      try {
+        const gaugeOf = await resolveGauges(needGauge.map((c) => c.p.poolAddress));
+        for (const c of needGauge) {
+          const g = gaugeOf.get(String(c.p.poolAddress).toLowerCase());
+          if (g) c.gaugeAddress = g;
+        }
+        trace('gaugesResolvedForHistory', needGauge.filter((c) => c.gaugeAddress).length);
+      } catch (err) {
+        // Emissions history is worth less than the rest of the report, so a
+        // failure here degrades one number instead of losing the position.
+        trace('gaugeResolveFailed', String(err?.message || err).slice(0, 120));
+        warnings.push('Gauge addresses could not be resolved, so historical emissions may be understated.');
+      }
+    }
+  }
+
   const results = await batchedRequests(candidates, async ({ p, staked, gaugeAddress, nfpm }) => {
     // Reconstructing a position's lifetime is many log scans across millions of
     // blocks. The portfolio view answers "what do I hold and what is it worth",
@@ -250,12 +307,9 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
       notes: history.notes,
     });
 
-    // P&L needs the event history. Without it we report null rather than a
-    // number built on assumptions.
-    if (position.events.length > 0) {
-      position.pnl = computePositionPnl(position);
-      position.strategies = compareStrategies(position);
-    }
+    // P&L is computed later, in one pass over every position. It has to wait
+    // because a gauge's claims are visible to more than one position and the
+    // duplicates have to be removed before any of them is valued.
     return position;
   }, 3, 100);
 
@@ -349,9 +403,22 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
           'This position was closed and its NFT burned. Rebuilt from its onchain events.',
         ],
       });
+      return position;   // P&L waits for the claim dedupe pass below.
+    }
+  }
+
+  // A gauge emits ClaimRewards indexed by the wallet, not by the position, so
+  // every position in that pool sees every claim the wallet made there. Valuing
+  // each of them would invent money that was only ever paid once. Each claim is
+  // attributed to the earliest position that was still open when it happened,
+  // and removed from the rest. Which one gets it does not change a lifetime
+  // total; counting it twice would.
+  dedupeClaimEvents(positions);
+
+  for (const position of positions) {
+    if (position.events?.length > 0 && !position.pnl) {
       position.pnl = computePositionPnl(position);
       position.strategies = compareStrategies(position);
-      return position;
     }
   }
 

@@ -465,6 +465,47 @@ async function findMintLog(nfpmAddr, tokenId, wallet, currentBlock, protocol = '
 }
 
 /**
+ * Gauge address for each pool, whether or not anything is staked in one now.
+ *
+ * This exists because emissions history was invisible for any position that had
+ * been unstaked. The gauge used to be resolved only as a by-product of asking
+ * which positions are staked TODAY, so a wallet that farmed a pool for months,
+ * claimed AERO and then closed the position reported zero emissions: the claims
+ * were on a gauge nobody looked at. The voter still maps pool to gauge long
+ * after the position is gone, so the lookup does not depend on current state.
+ *
+ * @param {string[]} pools
+ * @returns {Promise<Map<string, string>>} pool address (lowercase) -> gauge address
+ */
+export async function resolveGauges(pools) {
+  const out = new Map();
+  const unique = [...new Set((pools || []).filter(Boolean).map((p) => String(p).toLowerCase()))];
+  if (unique.length === 0) return out;
+
+  const voterAddr = VOTER_ADDRS['aerodrome']?.[CHAIN];
+  if (!voterAddr) return out;
+
+  const provider = await getProvider(CHAIN);
+  const voterIface = new ethers.utils.Interface(VOTER_ABI);
+
+  const results = await multicall(provider, unique.map((pool) => ({
+    target: voterAddr,
+    allowFailure: true,
+    callData: voterIface.encodeFunctionData('gauges', [pool]),
+  })));
+
+  results.forEach((r, i) => {
+    if (!r.success) return;
+    try {
+      const [addr] = voterIface.decodeFunctionResult('gauges', r.returnData);
+      if (addr && addr !== ZERO_ADDR) out.set(unique[i], String(addr).toLowerCase());
+    } catch (_) { /* pool has no gauge */ }
+  });
+
+  return out;
+}
+
+/**
  * Full event timeline of one position, every amount valued at the price on the
  * day it happened.
  *
@@ -615,11 +656,23 @@ export async function getPositionHistory({
     else if (to === walletLower) push('unstake', log, {});
   }
 
+  // A gauge's ClaimRewards is indexed by wallet, not by position, so this scan
+  // returns every claim the wallet made in this gauge — including ones that
+  // belong to a different position in the same pool. Two guards keep that from
+  // becoming double counted money: claims after this position was burned are
+  // not its own, and each claim carries its gauge and log index so the caller
+  // can drop one it has already attributed elsewhere.
+  const burnBlock = events.find((e) => e.type === 'burn')?.blockNumber ?? null;
   const rewardDecimals = 18; // AERO
   for (const log of claimLogs) {
+    if (burnBlock != null && log.blockNumber > burnBlock) continue;
     try {
       const [amount] = ethers.utils.defaultAbiCoder.decode(['uint256'], log.data);
-      push('claim_rewards', log, { rewardAmount: human(amount, rewardDecimals) });
+      push('claim_rewards', log, {
+        rewardAmount: human(amount, rewardDecimals),
+        gauge: String(gaugeAddress).toLowerCase(),
+        logIndex: log.logIndex,
+      });
     } catch (_) { degrade('A rewards claim could not be decoded.'); }
   }
 

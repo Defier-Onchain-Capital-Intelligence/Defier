@@ -35,6 +35,11 @@ export interface PositionEvent {
   amount1Usd?: number;
   rewardAmount?: number;    // AERO, human units (claim_rewards)
   rewardUsd?: number;
+  // A gauge's ClaimRewards is indexed by wallet, not by position, so the same
+  // claim reaches every position in that pool. These two identify it uniquely
+  // so it can be attributed to one of them and dropped from the others.
+  gauge?: string;
+  logIndex?: number;
   gasUsd?: number;
   notes?: string[];
 }
