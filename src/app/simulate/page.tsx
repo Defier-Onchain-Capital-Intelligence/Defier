@@ -12,7 +12,7 @@ export default async function SimulatePage({
   searchParams: Promise<{
     entry?: string; low?: string; high?: string; size?: string; apr?: string; days?: string;
     pair?: string; variant?: string; project?: string;
-    s0?: string; s1?: string; a0?: string; a1?: string; from?: string;
+    s0?: string; s1?: string; a0?: string; a1?: string; from?: string; ts?: string;
   }>;
 }) {
   const q = await searchParams;
@@ -42,6 +42,7 @@ export default async function SimulatePage({
           symbol1: text(q.s1, 12),
           address0: addr(q.a0),
           address1: addr(q.a1),
+          tickSpacing: num(q.ts),
           source: q.from === 'position' ? 'position' : q.from === 'pool' ? 'pool' : undefined,
         }}
       />

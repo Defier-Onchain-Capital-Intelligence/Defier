@@ -27,6 +27,13 @@ export function PositionRow({ position, wallet }: { position: LpPosition; wallet
           <div className="min-w-0">
           <p className="truncate font-medium">
             {position.symbol}
+            {/* CL1 and CL200 on the same pair are different pools with different
+                granularity. Without this the list shows the same name twice. */}
+            {position.variant ? (
+              <span className="ml-1.5 rounded bg-bg-elevated px-1 py-0.5 text-[0.5625rem] font-medium text-ink-secondary">
+                {position.variant}
+              </span>
+            ) : null}
             {hasStock ? <span className="ml-2 pill-stock">Stock</span> : null}
           </p>
           <p className="mt-1">

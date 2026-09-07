@@ -130,6 +130,12 @@ export interface LpPosition {
   token0: TokenRef;
   token1: TokenRef;
   symbol: string;               // "WETH/USDC"
+  /** Aerodrome Slipstream: the pool's tick spacing. Null on Uniswap. */
+  tickSpacing: number | null;
+  /** Uniswap V3: the fee tier in hundredths of a bip. Null on Aerodrome. */
+  feeTier: number | null;
+  /** How the pool is named to a reader: "CL200", or "0.05%". */
+  variant: string | null;
   tickLower: number;
   tickUpper: number;
   currentTick: number;

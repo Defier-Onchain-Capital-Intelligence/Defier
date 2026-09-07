@@ -49,6 +49,18 @@ function tokenRef(raw) {
 }
 
 /** Scanner output plus history -> LpPosition of types/portfolio.ts */
+/**
+ * How a pool is named to a reader. "CL200" on Aerodrome, "0.05%" on Uniswap.
+ *
+ * Two pools on the same pair are not the same pool, and without this the screens
+ * showed WETH/USDC four times with no way to tell which was which.
+ */
+function variantLabel(protocol, fee) {
+  const n = Number(fee);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return protocol === 'aerodrome' ? `CL${n}` : `${(n / 10000).toFixed(2).replace(/0$/, '')}%`;
+}
+
 function toLpPosition(p, extra = {}) {
   const token0 = tokenRef(p.token0);
   const token1 = tokenRef(p.token1);
@@ -63,6 +75,14 @@ function toLpPosition(p, extra = {}) {
     token0,
     token1,
     symbol: p.symbol,
+    // For Aerodrome Slipstream the fifth field of positions() is the tick
+    // spacing, not a fee: it is what names the pool. CL1 and CL200 on the same
+    // pair are different pools with different granularity, and a range that
+    // exists in one cannot exist in the other, so this has to travel with the
+    // position rather than be inferred from the pair.
+    tickSpacing: p.protocol === 'aerodrome' && Number.isFinite(p.fee) ? Number(p.fee) : null,
+    feeTier: p.protocol !== 'aerodrome' && Number.isFinite(p.fee) ? Number(p.fee) : null,
+    variant: variantLabel(p.protocol, p.fee),
     tickLower: p.tickLower,
     tickUpper: p.tickUpper,
     currentTick: p.currentTick,

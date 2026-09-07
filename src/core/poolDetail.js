@@ -48,11 +48,42 @@ function presetsFor(tickSpacing, fallback) {
   return out.length > 2 ? out : fallback;
 }
 
-/** Widths the slider can land on, as a fraction either side of the current price. */
+/** Fallback widths, for a pool whose tick spacing we could not read. */
 const GRID = [
   0.0005, 0.001, 0.002, 0.0035, 0.005, 0.0075, 0.01, 0.015, 0.02, 0.03, 0.04, 0.05,
   0.075, 0.10, 0.15, 0.20, 0.30, 0.40, 0.50, 0.75, 0.999,
 ];
+
+/** Whole numbers of tick spacings, spaced so the slider stays readable end to end. */
+const TICK_MULTIPLES = [
+  1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256, 384, 512, 768,
+  1024, 1536, 2048, 3072, 4096, 6144, 8192,
+];
+
+/**
+ * The widths this pool can actually hold.
+ *
+ * A range in a concentrated pool is bounded by ticks, and ticks only exist at
+ * multiples of the pool's spacing. The slider used to offer the same twenty one
+ * percentages to every pool, which on a CL200 — where one spacing is about two
+ * percent — meant offering ±0.05%: a range nobody can open, priced with an APR
+ * nobody can earn. Quoting a return for a position that cannot exist is the one
+ * thing this product must never do, and it was doing it on the screen where
+ * people decide.
+ */
+function gridFor(tickSpacing) {
+  if (!tickSpacing) return GRID;
+  const tick = Math.pow(1.0001, tickSpacing) - 1;
+  const out = [];
+  for (const m of TICK_MULTIPLES) {
+    const width = m * tick;
+    if (width > 0.9) break;
+    out.push(Math.round(width * 1e6) / 1e6);
+  }
+  out.push(0.999);
+  const unique = [...new Set(out)];
+  return unique.length > 3 ? unique : GRID;
+}
 
 /**
  * TVL weighted mean of the daily fee APR.
@@ -195,7 +226,7 @@ export async function buildPoolDetail(pool) {
     };
   };
 
-  const grid = GRID.map((w) => aprAt(w, w)).filter(Boolean);
+  const grid = gridFor(tickSpacing).map((w) => aprAt(w, w)).filter(Boolean);
   const fullRange = aprAt(0.999, 0.999);
 
   // Liquidity shape. Best effort: the subgraph may be down and the RPC walk is

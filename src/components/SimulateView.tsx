@@ -28,6 +28,8 @@ export type SimContext = {
   symbol?: string; variant?: string; project?: string;
   symbol0?: string; symbol1?: string;
   address0?: string; address1?: string;
+  /** The pool's tick spacing. Ranges only exist at multiples of it. */
+  tickSpacing?: number;
   source?: 'position' | 'pool' | 'picker';
 };
 
@@ -77,6 +79,24 @@ export type SimPreset = {
   days?: number;
 };
 
+/**
+ * The nearest range width this pool can actually hold.
+ *
+ * A bound in a concentrated pool lives on a tick, and ticks exist only at
+ * multiples of the pool's spacing. On a CL200 pool one spacing is about two
+ * percent, so a simulation of ±0.5% there is a simulation of a position nobody
+ * can open. Snapping is not a nicety: an unsnapped answer is a made up one.
+ */
+const tickPct = (tickSpacing?: number) =>
+  tickSpacing ? (Math.pow(1.0001, tickSpacing) - 1) * 100 : null;
+
+function snapPct(pct: number, tickSpacing?: number) {
+  if (!tickSpacing || !(1 + pct / 100 > 0)) return pct;
+  const ticks = Math.log(1 + pct / 100) / Math.log(1.0001);
+  const snapped = Math.round(ticks / tickSpacing) * tickSpacing;
+  return (Math.pow(1.0001, snapped) - 1) * 100;
+}
+
 const priceFrom = (entry: number, pct: number) => entry * (1 + pct / 100);
 const pctFrom = (entry: number, price: number) => (price / entry - 1) * 100;
 
@@ -101,8 +121,14 @@ export function SimulateView({ preset, context }: {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const lowerPrice = priceFrom(form.entryPrice, form.lowPct);
-  const upperPrice = priceFrom(form.entryPrice, form.highPct);
+  // Snapped, always. The form may hold what was typed; everything downstream —
+  // the curve, the band, the prices shown — uses what the pool can hold.
+  const spacing = ctx?.tickSpacing;
+  const lowPct = snapPct(form.lowPct, spacing);
+  const highPct = snapPct(form.highPct, spacing);
+  const lowerPrice = priceFrom(form.entryPrice, lowPct);
+  const upperPrice = priceFrom(form.entryPrice, highPct);
+  const step = tickPct(spacing);
 
   /**
    * Caught here rather than at the server, because the screen must not keep
@@ -112,12 +138,12 @@ export function SimulateView({ preset, context }: {
    */
   const invalid = useMemo(() => {
     if (!(form.entryPrice > 0)) return 'The entry price has to be above zero.';
-    if (form.lowPct <= -100) return 'The lower bound cannot reach zero: that is not a price.';
-    if (form.highPct <= form.lowPct) return 'The upper bound has to be above the lower one.';
+    if (lowPct <= -100) return 'The lower bound cannot reach zero: that is not a price.';
+    if (highPct <= lowPct) return 'The upper bound has to be above the lower one.';
     if (!(form.positionUsd > 0)) return 'A position has to have a size.';
     if (!(form.days > 0)) return 'The horizon has to be at least a day.';
     return null;
-  }, [form]);
+  }, [form, lowPct, highPct]);
 
   useEffect(() => {
     if (invalid) { setPoints(null); setError(null); setBusy(false); return; }
@@ -130,8 +156,8 @@ export function SimulateView({ preset, context }: {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           entryPrice: form.entryPrice,
-          lowerPrice: priceFrom(form.entryPrice, form.lowPct),
-          upperPrice: priceFrom(form.entryPrice, form.highPct),
+          lowerPrice,
+          upperPrice,
           positionUsd: form.positionUsd,
           aprPct: form.aprPct,
           days: form.days,
@@ -144,7 +170,7 @@ export function SimulateView({ preset, context }: {
         .finally(() => { if (live) setBusy(false); });
     }, 250);   // debounce: the inputs move faster than the network
     return () => { live = false; clearTimeout(id); };
-  }, [form, zoom, invalid]);
+  }, [form, zoom, invalid, lowerPrice, upperPrice]);
 
   // Where the position stops beating holding. This is the answer; the chart is the evidence.
   const crossings = useMemo(() => {
@@ -186,6 +212,7 @@ export function SimulateView({ preset, context }: {
       symbol1: pool.tokens?.token1?.symbol || undefined,
       address0: pool.tokens?.token0?.address,
       address1: pool.tokens?.token1?.address,
+      tickSpacing: pool.tickSpacing ?? undefined,
       source: 'picker',
     });
   }
@@ -254,16 +281,18 @@ export function SimulateView({ preset, context }: {
           <div className="grid grid-cols-2 gap-3">
             <Field label="Range low" suffix="%" hint={fmtPrice(lowerPrice)}>
               <input
-                type="number" step="0.5" className="input tnum pr-10"
+                type="number" step={step ? round2(step) : 0.5} className="input tnum pr-10"
                 value={round2(form.lowPct)}
                 onChange={(e) => setForm((f) => ({ ...f, lowPct: Number(e.target.value) }))}
+                onBlur={() => setForm((f) => ({ ...f, lowPct: round2(snapPct(f.lowPct, spacing)) }))}
               />
             </Field>
             <Field label="Range high" suffix="%" hint={fmtPrice(upperPrice)}>
               <input
-                type="number" step="0.5" className="input tnum pr-10"
+                type="number" step={step ? round2(step) : 0.5} className="input tnum pr-10"
                 value={round2(form.highPct)}
                 onChange={(e) => setForm((f) => ({ ...f, highPct: Number(e.target.value) }))}
+                onBlur={() => setForm((f) => ({ ...f, highPct: round2(snapPct(f.highPct, spacing)) }))}
               />
             </Field>
           </div>
@@ -284,6 +313,14 @@ export function SimulateView({ preset, context }: {
               />
             </Field>
           </div>
+
+          {step ? (
+            <p className="text-[0.6875rem] leading-relaxed text-ink-muted">
+              This pool moves in steps of {step < 0.01 ? step.toFixed(4) : step.toFixed(2)}% —
+              one tick spacing{ctx?.variant ? ` on ${ctx.variant}` : ''}. Anything between two steps
+              is a range it cannot hold, so the numbers above land on the nearest one it can.
+            </p>
+          ) : null}
 
           <Field label="Horizon" suffix="days">
             <input

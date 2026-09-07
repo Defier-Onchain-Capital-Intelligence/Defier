@@ -45,6 +45,11 @@ export function PositionDetail({ id, wallet }: { id: string; wallet: string }) {
         <div className="flex items-center gap-2.5">
           <TokenPair token0={pos.token0} token1={pos.token1} size={26} />
           <h1 className="text-lg font-semibold">{pos.symbol}</h1>
+          {pos.variant ? (
+            <span className="rounded bg-bg-elevated px-1.5 py-0.5 text-[0.625rem] font-medium text-ink-secondary">
+              {pos.variant}
+            </span>
+          ) : null}
         </div>
         <div className="mt-1.5 flex items-center gap-2">
           <StatusPill inRange={pos.inRange} staked={pos.staked} closed={pos.closed} kind={pos.kind} />
@@ -190,6 +195,10 @@ function SimulateLink({ pos }: { pos: LpPosition }) {
     a1: pos.token1.address,
     from: 'position',
   });
+  // The simulator has to know the pool's granularity, or it will offer a range
+  // this pool cannot hold.
+  if (pos.tickSpacing) params.set('ts', String(pos.tickSpacing));
+  if (pos.variant) params.set('variant', pos.variant);
   const apr = pos.pnl?.realizedAprPct;
   if (apr != null && apr > 0) params.set('apr', String(Math.round(apr * 10) / 10));
 

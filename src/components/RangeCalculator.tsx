@@ -45,6 +45,8 @@ export function RangeCalculator({ pool }: { pool: PoolDetail }) {
       from: 'pool',
     });
     if (pool.variant) params.set('variant', pool.variant);
+    // Without the spacing the simulator would let the range off this pool's grid.
+    if (pool.tickSpacing) params.set('ts', String(pool.tickSpacing));
     if (pool.tokens?.token0?.symbol) params.set('s0', pool.tokens.token0.symbol);
     if (pool.tokens?.token1?.symbol) params.set('s1', pool.tokens.token1.symbol);
     if (pool.tokens?.token0?.address) params.set('a0', pool.tokens.token0.address);
