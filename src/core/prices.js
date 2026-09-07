@@ -212,3 +212,66 @@ export async function fetchHistoricalPricesBatch(chain, addresses, timestamp) {
 export function clearHistoricalPriceCache() {
   _histCache.clear();
 }
+
+// ─── Price series ──────────────────────────────────────────────────────────────
+
+const _seriesCache = new Map();   // `${chain}:${addr}:${fromDay}` -> Map<day, price>
+const SERIES_TTL_MS = 30 * 60 * 1000;
+
+/**
+ * Daily USD price series for one token, from `fromTs` to now.
+ *
+ * A value curve needs one price per token per day, and asking for them one at a
+ * time is a request per day per token: a year of two tokens is 730 requests and
+ * a rate limit. DeFiLlama returns the whole span in one call, so that is what
+ * this uses.
+ *
+ * The result is keyed by UTC day number, which is the same bucket
+ * fetchHistoricalPrice uses, so the two agree about what "that day's price" is.
+ *
+ * @param {string} chain
+ * @param {string} address
+ * @param {number} fromTs unix seconds
+ * @returns {Promise<Map<number, number>|null>} null when the series cannot be
+ *   read. Callers must say the curve is unavailable rather than draw a flat line.
+ */
+export async function fetchPriceSeries(chain, address, fromTs) {
+  if (!address || !fromTs) return null;
+  const normalised = String(address).toLowerCase();
+  const fromDay = Math.floor(fromTs / 86400);
+  const cacheKey = `${chain}:${normalised}:${fromDay}`;
+
+  const hit = _seriesCache.get(cacheKey);
+  if (hit && Date.now() - hit.ts < SERIES_TTL_MS) return hit.series;
+
+  const llamaChain = LLAMA_CHAIN[chain] || chain;
+  const key = `${llamaChain}:${normalised}`;
+  const spanDays = Math.max(1, Math.ceil((Date.now() / 1000 - fromTs) / 86400) + 1);
+
+  try {
+    const url = `https://coins.llama.fi/chart/${key}`
+      + `?start=${Math.floor(fromTs)}&span=${Math.min(spanDays, 1000)}&period=1d&searchWidth=12h`;
+    const resp = await withTimeout(fetch(url), 12000);
+    const data = await resp.json();
+    const points = data?.coins?.[key]?.prices;
+    if (!Array.isArray(points) || points.length === 0) return null;
+
+    const series = new Map();
+    for (const point of points) {
+      const ts = Number(point?.timestamp);
+      const price = Number(point?.price);
+      if (!Number.isFinite(ts) || !(price > 0)) continue;
+      series.set(Math.floor(ts / 86400), price);
+    }
+    if (series.size === 0) return null;
+
+    _seriesCache.set(cacheKey, { series, ts: Date.now() });
+    return series;
+  } catch (_) {
+    return null;
+  }
+}
+
+export function clearPriceSeriesCache() {
+  _seriesCache.clear();
+}

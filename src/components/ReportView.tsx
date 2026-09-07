@@ -19,6 +19,7 @@ import Link from 'next/link';
 import type { LifetimeReport } from '@/types/portfolio';
 import { usd, pct, amount, relativeDays, dateOf, toneOf } from '@/lib/format';
 import { figuresFrom, reportHeadline } from '@/lib/reportCopy';
+import { ValueCurve } from '@/components/ValueCurve';
 import { Card, Label, Skeleton, EmptyState, BackLink } from '@/components/ui/Primitives';
 import { InfoDot } from '@/components/ui/InfoDot';
 import { TokenLogo } from '@/components/ui/TokenLogo';
@@ -83,6 +84,8 @@ export function ReportView({ address }: { address: string }) {
           </p>
         ) : null}
       </header>
+
+      <ValueCurve address={address} />
 
       <Card>
         <div className="grid grid-cols-2 gap-4">

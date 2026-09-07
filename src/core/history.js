@@ -614,19 +614,25 @@ export async function getPositionHistory({
     ...extra,
   });
 
+  // The first field of both events is the liquidity added or removed. It used to
+  // be discarded, and discarding it is what made a value curve impossible: token
+  // amounts alone cannot say what a position was worth at a price it no longer
+  // sits at, because the answer depends on L and the range, not on what went in.
   for (const log of increases) {
-    const [, amount0, amount1] = ethers.utils.defaultAbiCoder.decode(['uint128', 'uint256', 'uint256'], log.data);
+    const [liquidity, amount0, amount1] = ethers.utils.defaultAbiCoder.decode(['uint128', 'uint256', 'uint256'], log.data);
     push(log.blockNumber === mintBlock ? 'mint' : 'increase', log, {
       amount0: human(amount0, token0.decimals),
       amount1: human(amount1, token1.decimals),
+      liquidityDelta: liquidity.toString(),
     });
   }
 
   for (const log of decreases) {
-    const [, amount0, amount1] = ethers.utils.defaultAbiCoder.decode(['uint128', 'uint256', 'uint256'], log.data);
+    const [liquidity, amount0, amount1] = ethers.utils.defaultAbiCoder.decode(['uint128', 'uint256', 'uint256'], log.data);
     push('decrease', log, {
       amount0: human(amount0, token0.decimals),
       amount1: human(amount1, token1.decimals),
+      liquidityDelta: `-${liquidity.toString()}`,
     });
   }
 

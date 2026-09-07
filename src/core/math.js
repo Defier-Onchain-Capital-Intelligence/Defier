@@ -358,6 +358,24 @@ export function tickToPrice(tick, dec0, dec1) {
   return Math.pow(1.0001, Number(tick)) * Math.pow(10, Number(dec0) - Number(dec1));
 }
 
+/**
+ * The tick a pool sits at when token0 is worth `price` token1.
+ *
+ * The inverse of tickToPrice, and the bridge that lets a position be valued at
+ * a price it held in the past: the amount formulas need a tick, and history
+ * gives us two USD prices. Their ratio is the pool price, and this turns that
+ * into the tick those formulas expect.
+ *
+ * @returns {number|null} null when the price is not a positive finite number
+ */
+export function tickFromPrice(price, dec0, dec1) {
+  const p = Number(price);
+  if (!(p > 0) || !Number.isFinite(p)) return null;
+  const raw = p * Math.pow(10, Number(dec1) - Number(dec0));
+  if (!(raw > 0) || !Number.isFinite(raw)) return null;
+  return Math.log(raw) / Math.log(1.0001);
+}
+
 
 /**
  * What a concentrated position is made of at a given price.

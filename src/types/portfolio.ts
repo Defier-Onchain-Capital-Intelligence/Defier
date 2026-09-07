@@ -33,6 +33,13 @@ export interface PositionEvent {
   amount1?: number;
   amount0Usd?: number;  // valued at historical price of that timestamp
   amount1Usd?: number;
+  /**
+   * Liquidity added or removed, raw uint128 as a string, negative for a
+   * withdrawal. Token amounts cannot say what a position was worth at a price
+   * it no longer sits at; L and the range can, which is what the value curve
+   * needs.
+   */
+  liquidityDelta?: string;
   rewardAmount?: number;    // AERO, human units (claim_rewards)
   rewardUsd?: number;
   // A gauge's ClaimRewards is indexed by wallet, not by position, so the same
@@ -42,6 +49,29 @@ export interface PositionEvent {
   logIndex?: number;
   gasUsd?: number;
   notes?: string[];
+}
+
+/** One day of the value curve. Built by core/valueHistory.js */
+export interface ValuePoint {
+  day: number;            // UTC day number
+  timestamp: number;      // unix seconds, start of that day
+  lpUsd: number;          // inside the positions + everything already withdrawn
+  hodlUsd: number;        // the same tokens, never deposited
+  divergenceUsd: number;  // lpUsd - hodlUsd, signed
+  positionsOpen: number;
+}
+
+/**
+ * The curve, and what it does not cover. A curve drawn over a wallet whose
+ * history is partly unreadable has to say so, or it reads as the whole story.
+ */
+export interface ValueHistory {
+  points: ValuePoint[];
+  positionsCovered: number;
+  positionsTotal: number;
+  firstDay: number | null;
+  complete: boolean;
+  notes: string[];
 }
 
 /** P&L breakdown for one position. Built by core/pnl.js (spec: PNL_SPEC.md) */
