@@ -33,14 +33,31 @@ export interface ReportResult {
 const CACHE_TTL_MS = 15 * 60 * 1000;
 const MAX_ENTRIES = 100;
 
-const cache = new Map<string, { at: number; data: ReportPayload }>();
+const cache = new Map<string, { at: number; data: ReportPayload; portfolio: Portfolio }>();
 const inflight = new Map<string, Promise<{ data: ReportPayload; portfolio: Portfolio }>>();
+
+function fresh(address: string) {
+  const hit = cache.get(address);
+  if (!hit || Date.now() - hit.at >= CACHE_TTL_MS) return null;
+  return hit;
+}
 
 /** The cached payload if it is still fresh, else null. No build is started. */
 export function peekReport(address: string): ReportPayload | null {
-  const hit = cache.get(address);
-  if (!hit || Date.now() - hit.at >= CACHE_TTL_MS) return null;
-  return hit.data;
+  return fresh(address)?.data ?? null;
+}
+
+/**
+ * The deep portfolio behind a cached report.
+ *
+ * The position detail route needs this. Its own build is shallow, which cannot
+ * see a position whose NFT was burned, so opening the closed position the
+ * report names as your worst answered "not found" — the report was linking to a
+ * screen that could not exist. Reading the deep build the report already paid
+ * for costs nothing and covers the case that matters.
+ */
+export function peekPortfolio(address: string): Portfolio | null {
+  return fresh(address)?.portfolio ?? null;
 }
 
 async function build(address: string) {
@@ -54,7 +71,7 @@ async function build(address: string) {
     warnings: portfolio.warnings,
   };
 
-  cache.set(address, { at: Date.now(), data });
+  cache.set(address, { at: Date.now(), data, portfolio });
   if (cache.size > MAX_ENTRIES) cache.delete(cache.keys().next().value as string);
 
   return { data, portfolio };

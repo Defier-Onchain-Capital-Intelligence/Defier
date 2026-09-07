@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { rateLimit } from '@/lib/rateLimit';
 import { buildPortfolio } from '@/core/portfolio.js';
+import { getReport, peekPortfolio } from '@/lib/reportBuild';
 import { getPositionHistory } from '@/core/history.js';
 import { computePositionPnl } from '@/core/pnl.js';
 import { compareStrategies } from '@/core/strategies.js';
@@ -41,21 +42,45 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   }
 
   try {
-    const portfolio = await buildPortfolio(wallet);
-    const position = portfolio.positions.find((p) => p.id === id);
+    // Three places a position can be, cheapest first. The shallow build sees
+    // what the wallet holds; the deep build additionally rebuilds positions
+    // whose NFT was burned. The report links to those by name — "your worst
+    // position" is usually a closed one — so answering "not found" for them
+    // meant the report pointed at a screen that could not exist.
+    const find = (p: { id: string }) => p.id === id;
+    let position = peekPortfolio(wallet)?.positions.find(find) ?? null;
+
+    if (!position) {
+      const shallow = await buildPortfolio(wallet);
+      position = shallow.positions.find(find) ?? null;
+    }
+    if (!position) {
+      const { portfolio } = await getReport(wallet);
+      position = (portfolio ?? peekPortfolio(wallet))?.positions.find(find) ?? null;
+    }
     if (!position) {
       return NextResponse.json({ error: 'Position not found for this wallet.' }, { status: 404 });
     }
 
-    const history = await getPositionHistory({
-      protocol: position.protocol,
-      tokenId: position.tokenId,
-      nfpmAddr: position.nfpmAddress,
-      gaugeAddress: position.gaugeAddress,
-      wallet,
-      token0: { address: position.token0.address, decimals: position.token0.decimals },
-      token1: { address: position.token1.address, decimals: position.token1.decimals },
-    });
+    // A rebuilt position already carries its timeline from the deep build.
+    // Scanning again would be minutes of log reads for the same answer.
+    const history = position.events?.length
+      ? {
+          events: position.events,
+          openedAt: position.openedAt ?? null,
+          closed: position.closed,
+          confidence: position.confidence,
+          notes: position.notes ?? [],
+        }
+      : await getPositionHistory({
+          protocol: position.protocol,
+          tokenId: position.tokenId,
+          nfpmAddr: position.nfpmAddress,
+          gaugeAddress: position.gaugeAddress,
+          wallet,
+          token0: { address: position.token0.address, decimals: position.token0.decimals },
+          token1: { address: position.token1.address, decimals: position.token1.decimals },
+        });
 
     const data = {
       ...position,
