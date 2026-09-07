@@ -24,7 +24,10 @@ export function amount(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return '—';
   if (value === 0) return '0';
   const abs = Math.abs(value);
-  if (abs < 0.000001) return value.toExponential(2);
+  // Scientific notation is precise and unreadable. Nobody looking at their own
+  // money wants to parse 8.00e-8, and the only thing it tells them is "almost
+  // nothing", which the words say better.
+  if (abs < 0.000001) return value < 0 ? '>-0.000001' : '<0.000001';
   if (abs < 1) return value.toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
   if (abs < 1000) return value.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
   return value.toLocaleString('en-US', { maximumFractionDigits: 2 });
