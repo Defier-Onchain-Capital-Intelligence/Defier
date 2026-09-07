@@ -62,7 +62,13 @@ export function ReportView({ address }: { address: string }) {
   // pool that converted into the side that fell less leaves you AHEAD of
   // holding, and reporting that as "no impermanent loss" throws away the more
   // interesting half of what actually happened.
-  const headlineLabel = gained ? 'Divergence, all time' : 'Impermanent loss, all time';
+  // "All time" is a claim, and we only make it when the search actually covered
+  // this wallet's whole history. Otherwise the label names the real scope: the
+  // positions we could measure, from the first one we found.
+  const scope = l.coverage.complete
+    ? 'all time'
+    : l.firstPositionAt ? `since ${dateOf(l.firstPositionAt)}` : 'so far';
+  const headlineLabel = gained ? `Divergence, ${scope}` : `Impermanent loss, ${scope}`;
   const headlineValue = gained ? l.divergenceGainUsd : l.impermanentLossUsd;
   const headlineTone = gained ? 'text-gain' : 'text-loss';
   const verdict = gained
@@ -88,7 +94,7 @@ export function ReportView({ address }: { address: string }) {
         <p className="mt-1 text-xs text-ink-muted">
           Across {l.positionsOpened} {l.positionsOpened === 1 ? 'position' : 'positions'} we could
           measure completely
-          {l.firstPositionAt ? `, since ${dateOf(l.firstPositionAt)}` : ''}
+          {l.coverage.complete && l.firstPositionAt ? `, since ${dateOf(l.firstPositionAt)}` : ''}
         </p>
         {l.coverage.concentrated ? (
           <p className="mt-2 rounded-xl border border-bg-border bg-bg-elevated p-3 text-xs leading-relaxed text-ink-secondary">
@@ -328,6 +334,12 @@ function Coverage({ coverage, counted }: {
           Measured completely: {counted} {counted === 1 ? 'position' : 'positions'}. Only these are
           in the figures below.
         </li>
+        {coverage.searchIncomplete ? (
+          <li>
+            We could not search this wallet&rsquo;s full history on Base, so the count above is a
+            floor rather than the answer, and nothing here is described as all time.
+          </li>
+        ) : null}
         {excluded > 0 ? (
           <li>
             Left out: {excluded} {excluded === 1 ? 'position' : 'positions'} we found but could not

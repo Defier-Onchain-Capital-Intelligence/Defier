@@ -44,10 +44,31 @@ export const CHAIN_RPCS_LIST = {
 };
 
 // Approximate deployment blocks per chain (limits getLogs scan range)
+/**
+ * Where each position manager's history actually begins.
+ *
+ * This is not a nicety. A log scan needs a floor, and the placeholder that used
+ * to sit here — block 1,000,000 — made every backward scan span forty million
+ * blocks, which no RPC will serve in the chunk sizes that implies. The scan then
+ * truncated partway and reported nothing found, which is indistinguishable from
+ * there being nothing there. That is how a wallet gets told it has three
+ * positions when it has more.
+ *
+ * Verified on Basescan by contract creation date:
+ *   Aerodrome Slipstream NFPM  created 2 years 129 days ago  ≈ block 13.9M
+ *   Uniswap V3 NFPM on Base    August 2023                   ≈ block 2.2M
+ *
+ * Base produces a block every two seconds, so a day is about 43,200 blocks.
+ * Both figures are rounded DOWN, because a floor that is slightly too early
+ * costs a little time and one that is too late loses history silently.
+ */
+export const DEPLOY_BLOCKS_BY_PROTOCOL = {
+  aerodrome:    { base: 13_600_000 },
+  'uniswap-v3': { base: 1_800_000 },
+};
+
 export const DEPLOY_BLOCKS = {
-  // TODO(Part 1): narrow to the Aerodrome Slipstream NFPM deploy block on Base
-  // before running unbounded lookbacks. Verify on Basescan.
-  base: 1000000,
+  base: 1_800_000,
 };
 
 // ─── Contract addresses ─────────────────────────────────────────────────────────

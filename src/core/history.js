@@ -29,7 +29,7 @@
 
 import { ethers } from 'ethers';
 import {
-  NFPM_ADDRS, FACTORY_ADDRS, VOTER_ADDRS, DEPLOY_BLOCKS,
+  NFPM_ADDRS, FACTORY_ADDRS, VOTER_ADDRS, DEPLOY_BLOCKS, DEPLOY_BLOCKS_BY_PROTOCOL,
   NFPM_ABI, FACTORY_ABI_AERO, VOTER_ABI,
   MULTICALL3_ADDR, MULTICALL3_ABI, POOL_ABI, POOL_ABI_AERO,
 } from './constants.js';
@@ -233,28 +233,43 @@ export async function getWalletTokenIdsFromLogs(wallet, protocol = 'aerodrome', 
   // Indexed path first. Scanning every Transfer of the position manager since
   // genesis with eth_getLogs is not something a request can afford.
   let ids = [];
+  /** True when we fell back to log scanning and could not cover the full range. */
+  let scanIncomplete = false;
   const indexed = await getEverOwnedTokenIds({ contractAddress: nfpmAddr, wallet });
   if (indexed) {
     ids = indexed.map((t) => t.tokenId);
   } else {
+    // The fallback path, used only when the indexed API is unavailable.
+    //
+    // It used to start 180 days back, which quietly capped every wallet's
+    // history at six months. A wallet two years deep would be told, with no
+    // caveat, that its story began half a year ago. The floor is now the
+    // position manager's own deploy block, and when the scan cannot finish that
+    // range it says so instead of returning a short list that looks complete.
     const logsProvider = (await getLogsProvider(CHAIN)) || provider;
     const currentBlock = await withTimeout(logsProvider.getBlockNumber(), 8000);
-    const fromBlock = Math.max(DEPLOY_BLOCKS[CHAIN] || 0, currentBlock - BASE_BLOCKS_PER_DAY * 180);
+    const fromBlock = DEPLOY_BLOCKS_BY_PROTOCOL[protocol]?.[CHAIN]
+      ?? DEPLOY_BLOCKS[CHAIN] ?? 0;
     const walletTopic = pad32(wallet);
 
+    const inReport = {};
+    const outReport = {};
     const [inbound, outbound] = await Promise.all([
       chunkedGetLogs(CHAIN, { address: nfpmAddr, topics: [topic.transfer, null, walletTopic] },
-        { fromBlock, toBlock: currentBlock, backward: false, collectAll: true, maxResults: 500 }),
+        { fromBlock, toBlock: currentBlock, backward: false, collectAll: true, maxResults: 500,
+          maxChunks: 900, report: inReport }),
       chunkedGetLogs(CHAIN, { address: nfpmAddr, topics: [topic.transfer, walletTopic, null] },
-        { fromBlock, toBlock: currentBlock, backward: false, collectAll: true, maxResults: 500 }),
+        { fromBlock, toBlock: currentBlock, backward: false, collectAll: true, maxResults: 500,
+          maxChunks: 900, report: outReport }),
     ]);
+    scanIncomplete = Boolean(inReport.truncated || outReport.truncated);
 
     ids = [...new Set([...(inbound || []), ...(outbound || [])]
       .map((log) => (log.topics[3] ? ethers.BigNumber.from(log.topics[3]).toString() : null))
       .filter(Boolean))];
   }
 
-  if (ids.length === 0) return [];
+  if (ids.length === 0) return scanIncomplete ? { incomplete: true, items: [] } : [];
 
   const nfpm = new ethers.Contract(nfpmAddr, NFPM_ABI, provider);
   const owners = await batchedRequests(
@@ -268,7 +283,8 @@ export async function getWalletTokenIdsFromLogs(wallet, protocol = 'aerodrome', 
     50
   );
 
-  return owners.filter((r) => r.status === 'fulfilled').map((r) => r.value);
+  const items = owners.filter((r) => r.status === 'fulfilled').map((r) => r.value);
+  return scanIncomplete ? { incomplete: true, items } : items;
 }
 
 
@@ -303,7 +319,10 @@ export async function reconstructBurnedPosition({ protocol = 'aerodrome', tokenI
   const logsProvider = (await getLogsProvider(CHAIN)) || provider;
   const currentBlock = await withTimeout(logsProvider.getBlockNumber(), 8000);
 
-  const mintLog = await findMintLog(resolvedNfpm, tokenId, wallet, currentBlock);
+  const mintLog = await findMintLog(resolvedNfpm, tokenId, wallet, currentBlock, protocol);
+  if (mintLog?.incomplete) {
+    return fail('the search for its opening transaction did not finish, so this is not a definitive miss');
+  }
   if (!mintLog?.transactionHash) return fail('mint transaction not found');
 
   const receipt = await withTimeout(provider.getTransactionReceipt(mintLog.transactionHash), 12000)
@@ -388,25 +407,36 @@ export async function reconstructBurnedPosition({ protocol = 'aerodrome', tokenI
  * if it misses. The HTML stopped at 60 days and reported "position not found",
  * which is a wrong answer dressed as a limitation.
  */
-async function findMintLog(nfpmAddr, tokenId, wallet, currentBlock) {
+async function findMintLog(nfpmAddr, tokenId, wallet, currentBlock, protocol = 'aerodrome') {
   // Alchemy's Transfers API already indexed this, so it answers in one request
   // regardless of how old the position is. This is what removes the 60 day ceiling.
   const indexed = await findMintViaTransfers({ contractAddress: nfpmAddr, wallet, tokenId });
   if (indexed) return { blockNumber: indexed.blockNumber, transactionHash: indexed.txHash };
 
-  // Without Alchemy, scan backwards. Recent positions are found quickly; very old
-  // ones may not be found at all, and the caller reports that instead of guessing.
+  // Without Alchemy, scan backwards from the position manager's own deploy block.
+  // The floor matters: with a placeholder floor the range spans tens of millions
+  // of blocks, the scan runs out of budget partway, and "not found" becomes
+  // indistinguishable from "we stopped looking".
   const filter = { address: nfpmAddr, topics: [topic.transfer, pad32(ZERO_ADDR), null, idTopic(tokenId)] };
-  const fastFrom = Math.max(DEPLOY_BLOCKS[CHAIN] || 0, currentBlock - BASE_BLOCKS_PER_DAY * 60);
+  const deployBlock = DEPLOY_BLOCKS_BY_PROTOCOL[protocol]?.[CHAIN]
+    ?? DEPLOY_BLOCKS[CHAIN] ?? 0;
+  const fastFrom = Math.max(deployBlock, currentBlock - BASE_BLOCKS_PER_DAY * 60);
 
   const recent = await chunkedGetLogs(CHAIN, filter, { fromBlock: fastFrom, toBlock: currentBlock, backward: true });
   if (recent) return recent;
 
-  const deployBlock = DEPLOY_BLOCKS[CHAIN] || 0;
   if (fastFrom <= deployBlock) return null;
-  return chunkedGetLogs(CHAIN, filter, {
-    fromBlock: deployBlock, toBlock: fastFrom, backward: true, maxChunks: 400,
+
+  const report = {};
+  const older = await chunkedGetLogs(CHAIN, filter, {
+    fromBlock: deployBlock, toBlock: fastFrom, backward: true, maxChunks: 900, report,
   });
+  if (older) return older;
+
+  // Nothing found AND the scan did not finish: say so rather than let a caller
+  // read this as proof the position does not exist.
+  if (report.truncated) return { incomplete: true };
+  return null;
 }
 
 /**
@@ -439,8 +469,8 @@ export async function getPositionHistory({
   const currentBlock = await withTimeout(logsProvider.getBlockNumber(), 8000);
   const tid = idTopic(tokenId);
 
-  const mintLog = await findMintLog(resolvedNfpm, tokenId, wallet, currentBlock);
-  if (!mintLog) {
+  const mintLog = await findMintLog(resolvedNfpm, tokenId, wallet, currentBlock, protocol);
+  if (!mintLog || mintLog.incomplete) {
     return { events: [], openedAt: null, mintBlock: null, closed: false, confidence: 'partial',
              notes: ['Could not find the mint of this position onchain, so entry data is unavailable.'] };
   }

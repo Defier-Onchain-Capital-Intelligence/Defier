@@ -21,16 +21,21 @@ const SITE = 'https://defier-alpha.vercel.app';
 function shareText(l: LifetimeReport): string {
   const il = usd(l.impermanentLossUsd);
   const earned = usd(l.earnedUsd);
+  // Never claim a scope the report did not prove. "Every position I have ever
+  // opened" is a strong sentence and it has to be true when it is posted.
+  const scope = l.coverage.complete
+    ? 'every liquidity position I have ever opened on Base'
+    : `${l.positionsOpened} of my liquidity positions on Base`;
 
   if (l.divergenceGainUsd > 0) {
-    return `I rebuilt every liquidity position I have ever opened on Base.\n\n`
+    return `I rebuilt ${scope}.\n\n`
       + `Impermanent loss cost me nothing: divergence went my way by ${usd(l.divergenceGainUsd)} `
       + `across ${l.positionsOpened} positions, plus ${earned} in fees.\n\n`
       + `Almost no LP knows this number for their own wallet.`;
   }
 
   if (l.impermanentLossUsd <= 0) {
-    return `I checked every liquidity position I have ever opened on Base.\n\n`
+    return `I checked ${scope}.\n\n`
       + `Earned ${earned} in fees and emissions, with no divergence from holding.\n\n`
       + `Most LPs have never seen this number for their own wallet.`;
   }

@@ -292,6 +292,8 @@ export interface LifetimeReport {
     /** Rebuilt but with a gap we could not close. Named, never summed. */
     positionsExcluded: number;
     excluded: Array<{ id: string; pair: string; reason: string }>;
+    /** The search could not cover the wallet's full range: this is a floor. */
+    searchIncomplete: boolean;
     complete: boolean;
     historyLoaded: boolean;
     /** Set when one position holds 90% or more of the capital these totals rest on. */
@@ -398,6 +400,7 @@ export interface Portfolio {
     burnedFound: number;
     burnedRebuilt: number;
     burnedMissed: number;
+    discoveryIncomplete: boolean;
     deep: boolean;
   };
   /** Observations about composition. Never instructions: see core/advisor.js. */

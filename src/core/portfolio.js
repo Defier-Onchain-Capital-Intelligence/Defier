@@ -150,6 +150,8 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
   let recovered = [];
   /** NFTs this wallet owned whose state no longer exists. Their events do. */
   const burned = [];
+  /** Set when the search for this wallet's positions could not cover its full range. */
+  let discoveryIncomplete = false;
   try {
     const sources = [
       ...AERODROME_CL_DEPLOYMENTS.map((d) => ({ protocol: 'aerodrome', nfpm: d.nfpm, factory: d.factory })),
@@ -158,7 +160,11 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
 
     const perSource = await Promise.all(sources.map(async (sourceItem) => {
       const owned = await getWalletTokenIdsFromLogs(wallet, sourceItem.protocol, sourceItem.nfpm);
-      return owned.map((t) => ({ ...t, protocol: sourceItem.protocol, nfpm: sourceItem.nfpm, factory: sourceItem.factory }));
+      // The discovery pass reports when it could not cover a wallet's whole
+      // range. Without that, a short list reads as a complete one.
+      const list = Array.isArray(owned) ? owned : (owned?.items ?? []);
+      if (!Array.isArray(owned) && owned?.incomplete) discoveryIncomplete = true;
+      return list.map((t) => ({ ...t, protocol: sourceItem.protocol, nfpm: sourceItem.nfpm, factory: sourceItem.factory }));
     }));
     const everOwned = perSource.flat();
     trace('everOwned', everOwned);
@@ -322,8 +328,16 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
     burnedFound: burned.length,
     burnedRebuilt,
     burnedMissed: Math.max(burned.length - burnedRebuilt, 0),
+    /** True when we could not search this wallet's whole history, so the set of
+     *  positions found is a floor rather than the answer. */
+    discoveryIncomplete,
     deep,
   };
+  if (discoveryIncomplete) {
+    warnings.push(
+      'We could not search this wallet\'s full history on Base, so there may be positions we never saw.',
+    );
+  }
   if (historyGap.burnedMissed > 0) {
     warnings.push(
       `${historyGap.burnedMissed} closed ${historyGap.burnedMissed === 1 ? 'position' : 'positions'} could not be rebuilt, `

@@ -194,10 +194,16 @@ export async function chunkedGetLogs(
     maxResults = 50,
     timeout = 12000,
     maxChunks = 80,
+    /** Optional. Filled in with { truncated, chunksSearched, blocksCovered } so
+     *  the caller can tell "nothing there" apart from "we stopped looking". */
+    report = null,
   } = {}
 ) {
   const provider = await getLogsProvider(chain);
-  if (!provider) return collectAll ? [] : null;
+  if (!provider) {
+    if (report) { report.truncated = true; report.reason = 'no logs provider'; }
+    return collectAll ? [] : null;
+  }
 
   if (!toBlock) toBlock = await provider.getBlockNumber();
   if (!fromBlock) fromBlock = toBlock - 5000;
@@ -219,9 +225,16 @@ export async function chunkedGetLogs(
     }
   }
 
+  let covered = 0;
   for (const { lo, hi } of ranges) {
-    if (chunksSearched >= maxChunks) break;
+    if (chunksSearched >= maxChunks) {
+      // Out of budget before the range was exhausted. Whatever we return now is
+      // a partial answer and the caller has to know that.
+      if (report) { report.truncated = true; report.reason = 'chunk budget exhausted'; }
+      break;
+    }
     chunksSearched++;
+    covered += (hi - lo + 1);
 
     try {
       const logs = await withTimeout(
@@ -232,6 +245,7 @@ export async function chunkedGetLogs(
         allResults.push(...logs);
         if (allResults.length >= maxResults) break;
       } else if (logs.length > 0) {
+        if (report) { report.truncated = false; report.chunksSearched = chunksSearched; }
         return backward ? logs[logs.length - 1] : logs[0];
       }
     } catch (e) {
@@ -260,6 +274,12 @@ export async function chunkedGetLogs(
     }
   }
 
+  if (report) {
+    report.chunksSearched = chunksSearched;
+    report.blocksCovered = covered;
+    report.blocksRequested = Math.max(toBlock - fromBlock, 0);
+    if (report.truncated === undefined) report.truncated = covered < (toBlock - fromBlock);
+  }
   return collectAll ? allResults : null;
 }
 

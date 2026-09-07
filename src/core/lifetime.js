@@ -212,7 +212,11 @@ export function computeLifetime(positions, coverage = {}) {
         pair: p.symbol,
         reason: p.pnl?.notes?.[0] || p.notes?.[0] || 'Something in this position could not be read.',
       })),
-      complete: (coverage.burnedMissed ?? 0) === 0 && unmeasured.length === 0 && coverage.deep === true,
+      /** True when the search itself could not cover this wallet's full range,
+       *  so the set of positions below is a floor, not the answer. */
+      searchIncomplete: coverage.discoveryIncomplete === true,
+      complete: (coverage.burnedMissed ?? 0) === 0 && unmeasured.length === 0
+        && coverage.discoveryIncomplete !== true && coverage.deep === true,
       historyLoaded: coverage.deep === true,
       /** Set when one position holds 90% or more of the capital these totals rest on. */
       concentrated: dominant
