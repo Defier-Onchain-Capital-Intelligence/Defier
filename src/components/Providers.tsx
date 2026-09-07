@@ -25,7 +25,19 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <OnchainKitProvider
       apiKey={process.env.NEXT_PUBLIC_ONCHAINKIT_API_KEY}
       chain={base}
-      config={{ appearance: { name: 'DeFier', mode: 'dark', theme: 'default' } }}
+      config={{
+        appearance: { name: 'DeFier', mode: 'dark', theme: 'default' },
+        // Without this, OnchainKit's default config carries exactly one
+        // connector — Base Account — so "connect wallet" jumps straight to
+        // Coinbase Keys and someone on MetaMask or Rabby concludes the app is
+        // not for them. The modal lists them all. OnchainKit skips it when a
+        // MiniKit context exists, so inside Base App the native flow is
+        // untouched: one setting, both audiences.
+        wallet: {
+          display: 'modal',
+          supportedWallets: { rabby: true, trust: true, frame: true },
+        },
+      }}
       miniKit={{ enabled: true }}
     >
       {children}
