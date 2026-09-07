@@ -30,6 +30,10 @@ export async function POST(req: Request) {
   const positionUsd = num(body.positionUsd);
   const aprPct = num(body.aprPct) ?? 0;
   const days = num(body.days) ?? 30;
+  // How far beyond the range the curve is drawn. The screen's zoom control moves
+  // this rather than stretching a fixed set of points, so zooming out shows more
+  // curve instead of the same curve larger.
+  const rangeMultiplier = Math.min(Math.max(num((body as { rangeMultiplier?: number }).rangeMultiplier) ?? 2, 1.05), 10);
 
   if (!entryPrice || !lowerPrice || !upperPrice || !positionUsd) {
     return NextResponse.json({ error: 'entryPrice, lowerPrice, upperPrice and positionUsd are required.' }, { status: 400 });
@@ -45,7 +49,7 @@ export async function POST(req: Request) {
   }
 
   const raw = generateSimulationCurve(
-    entryPrice, lowerPrice, upperPrice, positionUsd, aprPct / 100, days
+    entryPrice, lowerPrice, upperPrice, positionUsd, aprPct / 100, days, 120, rangeMultiplier
   );
 
   // What the position would BE at each price, not only what it would be worth.

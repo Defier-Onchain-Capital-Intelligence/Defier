@@ -13,6 +13,8 @@ import {
 import { usd, price as fmtPrice, toneOf } from '@/lib/format';
 import { Card, Label, EmptyState } from '@/components/ui/Primitives';
 import { TokenPair } from '@/components/ui/TokenLogo';
+import { PoolPicker } from '@/components/PoolPicker';
+import type { PoolDetail } from '@/types/pool';
 
 type Point = {
   price: number; lpValue: number; holdValue: number;
@@ -26,7 +28,7 @@ export type SimContext = {
   symbol?: string; variant?: string; project?: string;
   symbol0?: string; symbol1?: string;
   address0?: string; address1?: string;
-  source?: 'position' | 'pool';
+  source?: 'position' | 'pool' | 'picker';
 };
 
 const PROJECT_LABEL: Record<string, string> = {
@@ -36,49 +38,113 @@ const PROJECT_LABEL: Record<string, string> = {
   aerodrome: 'Aerodrome',
 };
 
-const FIELDS = [
-  { key: 'entryPrice',  label: 'Entry price',   step: 'any' },
-  { key: 'lowerPrice',  label: 'Range low',     step: 'any' },
-  { key: 'upperPrice',  label: 'Range high',    step: 'any' },
-  { key: 'positionUsd', label: 'Position size', step: 'any', prefix: '$' },
-  { key: 'aprPct',      label: 'Expected APR',  step: 'any', suffix: '%' },
-  { key: 'days',        label: 'Horizon',       step: '1',   suffix: ' days' },
-] as const;
+/**
+ * The range is entered as a distance from the entry price, not as two absolute
+ * numbers.
+ *
+ * Two reasons, and the second one is a bug this replaces. A range is a decision
+ * about width — "give me five percent either side" — and reading it as two
+ * prices with fourteen decimals makes the reader do arithmetic to find out what
+ * they chose. And a number input on a price like 0.0286 steps by 1: one press
+ * of the down arrow produced -0.97, a negative price, which no amount of
+ * validation makes into a sensible control. Percentages step by halves and
+ * cannot walk off the end.
+ */
+type FormState = {
+  entryPrice: number;
+  lowPct: number;      // negative: below entry
+  highPct: number;     // positive: above entry
+  positionUsd: number;
+  aprPct: number;
+  days: number;
+};
 
-type FormState = Record<(typeof FIELDS)[number]['key'], number>;
+/** How wide a price sweep the curve covers, narrowest first. Index 3 is the default. */
+const ZOOM_LEVELS = [1.15, 1.4, 1.7, 2, 3, 5, 8];
+const DEFAULT_ZOOM = 3;
+
+/**
+ * What callers pass in: a real position or a pool's suggested range, in prices.
+ * The form converts those to percentages once, on open, because a preset arrives
+ * as two absolute prices and a person thinks in width.
+ */
+export type SimPreset = {
+  entryPrice?: number;
+  lowerPrice?: number;
+  upperPrice?: number;
+  positionUsd?: number;
+  aprPct?: number;
+  days?: number;
+};
+
+const priceFrom = (entry: number, pct: number) => entry * (1 + pct / 100);
+const pctFrom = (entry: number, price: number) => (price / entry - 1) * 100;
 
 export function SimulateView({ preset, context }: {
-  preset?: Partial<FormState>;
+  preset?: SimPreset;
   context?: SimContext;
 }) {
-  const [form, setForm] = useState<FormState>({
-    entryPrice: preset?.entryPrice ?? 2500,
-    lowerPrice: preset?.lowerPrice ?? 2000,
-    upperPrice: preset?.upperPrice ?? 3200,
-    positionUsd: preset?.positionUsd ?? 10000,
-    aprPct: preset?.aprPct ?? 25,
-    days: preset?.days ?? 30,
+  const [form, setForm] = useState<FormState>(() => {
+    const entryPrice = preset?.entryPrice ?? 2500;
+    return {
+      entryPrice,
+      lowPct: preset?.lowerPrice ? pctFrom(entryPrice, preset.lowerPrice) : -20,
+      highPct: preset?.upperPrice ? pctFrom(entryPrice, preset.upperPrice) : 28,
+      positionUsd: preset?.positionUsd ?? 10000,
+      aprPct: preset?.aprPct ?? 25,
+      days: preset?.days ?? 30,
+    };
   });
+  const [zoom, setZoom] = useState(DEFAULT_ZOOM);
+  const [ctx, setCtx] = useState<SimContext | undefined>(context);
   const [points, setPoints] = useState<Point[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const lowerPrice = priceFrom(form.entryPrice, form.lowPct);
+  const upperPrice = priceFrom(form.entryPrice, form.highPct);
+
+  /**
+   * Caught here rather than at the server, because the screen must not keep
+   * drawing the previous answer while the inputs say something else. A stale
+   * curve beside an error message reads as a chart that broke, and the reader
+   * has no way to tell which of the two to believe.
+   */
+  const invalid = useMemo(() => {
+    if (!(form.entryPrice > 0)) return 'The entry price has to be above zero.';
+    if (form.lowPct <= -100) return 'The lower bound cannot reach zero: that is not a price.';
+    if (form.highPct <= form.lowPct) return 'The upper bound has to be above the lower one.';
+    if (!(form.positionUsd > 0)) return 'A position has to have a size.';
+    if (!(form.days > 0)) return 'The horizon has to be at least a day.';
+    return null;
+  }, [form]);
+
   useEffect(() => {
+    if (invalid) { setPoints(null); setError(null); setBusy(false); return; }
+
     let live = true;
     setBusy(true); setError(null);
     const id = setTimeout(() => {
       fetch('/api/simulate', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          entryPrice: form.entryPrice,
+          lowerPrice: priceFrom(form.entryPrice, form.lowPct),
+          upperPrice: priceFrom(form.entryPrice, form.highPct),
+          positionUsd: form.positionUsd,
+          aprPct: form.aprPct,
+          days: form.days,
+          rangeMultiplier: ZOOM_LEVELS[zoom],
+        }),
       })
         .then((r) => r.json())
-        .then((d) => { if (!live) return; if (d.error) setError(d.error); else setPoints(d.points); })
+        .then((d) => { if (!live) return; if (d.error) { setError(d.error); setPoints(null); } else setPoints(d.points); })
         .catch((e) => { if (live) setError(e.message); })
         .finally(() => { if (live) setBusy(false); });
-    }, 250);   // debounce: the sliders move faster than the network
+    }, 250);   // debounce: the inputs move faster than the network
     return () => { live = false; clearTimeout(id); };
-  }, [form]);
+  }, [form, zoom, invalid]);
 
   // Where the position stops beating holding. This is the answer; the chart is the evidence.
   const crossings = useMemo(() => {
@@ -97,64 +163,140 @@ export function SimulateView({ preset, context }: {
 
   const atEntry = points?.find((p) => p.price >= form.entryPrice)?.pnlVsHold ?? null;
 
-  const s0 = context?.symbol0 || 'token0';
-  const s1 = context?.symbol1 || 'token1';
+  /** A pool chosen here fills the form from that pool, not from defaults. */
+  function applyPool(pool: PoolDetail) {
+    const preferred = pool.presets?.[1];
+    const lowPct = preferred ? -preferred.pctLow * 100 : -5;
+    const highPct = preferred ? preferred.pctHigh * 100 : 5;
+    const apr = pool.published?.apyBase7dPct ?? pool.published?.apyBasePct ?? 20;
+
+    setForm((f) => ({
+      ...f,
+      entryPrice: pool.currentPrice,
+      lowPct: round2(lowPct),
+      highPct: round2(highPct),
+      aprPct: round2(apr),
+    }));
+    setZoom(DEFAULT_ZOOM);
+    setCtx({
+      symbol: pool.symbol,
+      variant: pool.variant || undefined,
+      project: pool.project,
+      symbol0: pool.tokens?.token0?.symbol || undefined,
+      symbol1: pool.tokens?.token1?.symbol || undefined,
+      address0: pool.tokens?.token0?.address,
+      address1: pool.tokens?.token1?.address,
+      source: 'picker',
+    });
+  }
+
+  const s0 = ctx?.symbol0 || 'token0';
+  const s1 = ctx?.symbol1 || 'token1';
 
   return (
     <div className="space-y-4">
       <h1 className="text-lg font-semibold">Simulate</h1>
 
-      {context?.symbol ? (
+      {ctx?.symbol ? (
         <Card>
           <div className="flex items-center gap-2.5">
             <TokenPair
-              token0={{ address: context.address0, symbol: context.symbol0 }}
-              token1={{ address: context.address1, symbol: context.symbol1 }}
+              token0={{ address: ctx.address0, symbol: ctx.symbol0 }}
+              token1={{ address: ctx.address1, symbol: ctx.symbol1 }}
               size={26}
             />
             <div className="min-w-0">
               <p className="truncate font-medium">
-                {context.symbol}
-                {context.variant ? (
+                {ctx.symbol}
+                {ctx.variant ? (
                   <span className="ml-1.5 rounded bg-bg-elevated px-1 py-0.5 text-[0.5625rem] font-medium text-ink-secondary">
-                    {context.variant}
+                    {ctx.variant}
                   </span>
                 ) : null}
               </p>
               <p className="text-[0.6875rem] text-ink-muted">
-                {PROJECT_LABEL[context.project || ''] || context.project || 'Base'}
-                {context.source === 'position' ? ' · from your position' : ' · from the pool screen'}
+                {PROJECT_LABEL[ctx.project || ''] || ctx.project || 'Base'}
+                {ctx.source === 'position' ? ' · from your position'
+                  : ctx.source === 'picker' ? ' · chosen here'
+                  : ' · from the pool screen'}
                 {' · price of '}{s0}{' in '}{s1}
               </p>
             </div>
+            {ctx.source === 'picker' ? (
+              <button
+                type="button"
+                onClick={() => setCtx(undefined)}
+                className="ml-auto shrink-0 text-[0.6875rem] text-accent"
+              >
+                Change
+              </button>
+            ) : null}
           </div>
         </Card>
       ) : (
-        <p className="px-1 text-xs leading-relaxed text-ink-muted">
-          Prices below are token0 quoted in token1. Open this from one of your positions or from a
-          pool to have the pair, the range and the size filled in for you.
-        </p>
+        <PoolPicker onPick={applyPool} />
       )}
 
       <Card>
         <Label>Position</Label>
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          {FIELDS.map((f) => (
-            <label key={f.key} className="block">
-              <span className="text-xs text-ink-muted">{f.label}</span>
+
+        <div className="mt-3 space-y-3">
+          <Field label="Entry price" suffix={s1}>
+            <input
+              type="number" step="any" className="input tnum pr-16"
+              value={form.entryPrice}
+              onChange={(e) => setForm((f) => ({ ...f, entryPrice: Number(e.target.value) }))}
+            />
+          </Field>
+
+          {/* Low on the left, high on the right: a range reads as a range only
+              when its two ends sit where a reader expects to find them. */}
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Range low" suffix="%" hint={fmtPrice(lowerPrice)}>
               <input
-                type="number"
-                step={f.step}
-                className="input mt-1 tnum"
-                value={form[f.key]}
-                onChange={(e) => setForm((s) => ({ ...s, [f.key]: Number(e.target.value) }))}
+                type="number" step="0.5" className="input tnum pr-10"
+                value={round2(form.lowPct)}
+                onChange={(e) => setForm((f) => ({ ...f, lowPct: Number(e.target.value) }))}
               />
-            </label>
-          ))}
+            </Field>
+            <Field label="Range high" suffix="%" hint={fmtPrice(upperPrice)}>
+              <input
+                type="number" step="0.5" className="input tnum pr-10"
+                value={round2(form.highPct)}
+                onChange={(e) => setForm((f) => ({ ...f, highPct: Number(e.target.value) }))}
+              />
+            </Field>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Position size" prefix="$">
+              <input
+                type="number" step="any" className="input tnum pl-7"
+                value={form.positionUsd}
+                onChange={(e) => setForm((f) => ({ ...f, positionUsd: Number(e.target.value) }))}
+              />
+            </Field>
+            <Field label="Expected APR" suffix="%">
+              <input
+                type="number" step="0.1" className="input tnum pr-10"
+                value={form.aprPct}
+                onChange={(e) => setForm((f) => ({ ...f, aprPct: Number(e.target.value) }))}
+              />
+            </Field>
+          </div>
+
+          <Field label="Horizon" suffix="days">
+            <input
+              type="number" step="1" className="input tnum pr-16"
+              value={form.days}
+              onChange={(e) => setForm((f) => ({ ...f, days: Number(e.target.value) }))}
+            />
+          </Field>
         </div>
       </Card>
 
-      {error ? <EmptyState title="That does not compute" body={error} /> : null}
+      {invalid ? <EmptyState title="That range cannot exist" body={invalid} /> : null}
+      {error && !invalid ? <EmptyState title="That does not compute" body={error} /> : null}
 
       {points?.length ? (
         <>
@@ -165,10 +307,35 @@ export function SimulateView({ preset, context }: {
               if the price stays where it is for {form.days} days
             </p>
 
-            <div className="mt-4 -mx-2 h-56">
+            {/* Zoom exists because a range can be narrower than the chart can
+                show. Widening the sweep asks the server for more curve rather
+                than stretching the same points, so the shape stays true. */}
+            <div className="mt-4 flex items-center justify-end gap-1.5">
+              <span className="mr-auto text-[0.6875rem] text-ink-muted">
+                Showing {Math.round((ZOOM_LEVELS[zoom] - 1) * 100)}% beyond each edge
+              </span>
+              <button
+                type="button" aria-label="Zoom in"
+                disabled={zoom === 0}
+                onClick={() => setZoom((z) => Math.max(0, z - 1))}
+                className="h-7 w-7 rounded-lg border border-bg-border text-ink-secondary disabled:opacity-40"
+              >
+                −
+              </button>
+              <button
+                type="button" aria-label="Zoom out"
+                disabled={zoom === ZOOM_LEVELS.length - 1}
+                onClick={() => setZoom((z) => Math.min(ZOOM_LEVELS.length - 1, z + 1))}
+                className="h-7 w-7 rounded-lg border border-bg-border text-ink-secondary disabled:opacity-40"
+              >
+                +
+              </button>
+            </div>
+
+            <div className="mt-2 -mx-2 h-56">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={points} margin={{ top: 6, right: 8, bottom: 0, left: 0 }}>
-                  <ReferenceArea x1={form.lowerPrice} x2={form.upperPrice} fill="#3B6EF6" fillOpacity={0.07} />
+                  <ReferenceArea x1={lowerPrice} x2={upperPrice} fill="#3B6EF6" fillOpacity={0.07} />
                   <ReferenceLine y={0} stroke="#23262F" />
                   {/* Where you are standing. Every reading on this curve is
                       relative to it, and without it the chart is unanchored. */}
@@ -234,6 +401,44 @@ export function SimulateView({ preset, context }: {
   );
 }
 
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * A labelled input that says what its number is measured in.
+ *
+ * Every field on this form is a different unit — a price, a percentage, dollars,
+ * days — and a column of bare numbers makes the reader guess which is which. The
+ * unit sits inside the field, and a percentage also shows the price it lands on,
+ * because the percentage is the decision and the price is the consequence.
+ */
+function Field({ label, children, prefix, suffix, hint }: {
+  label: string;
+  children: React.ReactNode;
+  prefix?: string;
+  suffix?: string;
+  hint?: string;
+}) {
+  return (
+    <label className="block">
+      <span className="text-xs text-ink-muted">{label}</span>
+      <span className="relative mt-1 block">
+        {prefix ? (
+          <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-sm text-ink-muted">
+            {prefix}
+          </span>
+        ) : null}
+        {children}
+        {suffix ? (
+          <span className="pointer-events-none absolute right-9 top-1/2 -translate-y-1/2 text-sm text-ink-muted">
+            {suffix}
+          </span>
+        ) : null}
+      </span>
+      {hint ? <span className="mt-1 block text-[0.6875rem] tnum text-ink-muted">{hint}</span> : null}
+    </label>
+  );
+}
 
 /**
  * The tooltip answers both questions at once.
