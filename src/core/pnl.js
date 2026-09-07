@@ -86,24 +86,49 @@ export function computePositionPnl(pos) {
   // is the counterfactual that matters: the same tokens, left in the wallet.
   const depositedToken0 = sum(deposits.map((e) => e.amount0));
   const depositedToken1 = sum(deposits.map((e) => e.amount1));
-  const withdrawnToken0 = sum(withdraws.map((e) => e.amount0));
-  const withdrawnToken1 = sum(withdraws.map((e) => e.amount1));
-
   // Deposited valued today: what holding everything would be worth now.
   const hodlValueUsd = depositedToken0 * priceNow0 + depositedToken1 * priceNow1;
 
-  // Divergence compares like with like: what the LP is worth plus what it already
-  // returned, against holding the same tokens over the same period.
-  const netToken0 = depositedToken0 - withdrawnToken0;
-  const netToken1 = depositedToken1 - withdrawnToken1;
-  const hodlOfRemainingUsd = netToken0 * priceNow0 + netToken1 * priceNow1;
-  const divergenceUsd = currentValueUsd - hodlOfRemainingUsd;
+  /**
+   * Divergence: what providing liquidity did to the CAPITAL, before fees.
+   *
+   *   D = (what is still inside) + (what already came out) - (holding it all)
+   *
+   * The comment above this line used to promise exactly that and the code did
+   * something else: it compared only what was still inside against holding the
+   * tokens not yet withdrawn. On an open position with no partial withdrawal
+   * the two agree, which is why it survived. On a CLOSED one it is nonsense —
+   * the left side is zero by definition, and the right side is the difference
+   * between deposited and withdrawn token amounts, which for a pool that
+   * converted one side into the other is a large number that means nothing.
+   *
+   * It put -$445 of "impermanent loss" next to "+$2,951 versus holding" on the
+   * same screen. Both came from this file, and only one of them was right.
+   *
+   * The invariant below is the guard: LP versus holding must equal divergence
+   * plus everything earned, less gas. If those two ever disagree again, the
+   * position says so instead of printing both.
+   */
+  const divergenceUsd = currentValueUsd + withdrawnUsd - hodlValueUsd;
 
   // ── N and the comparison (items 10 to 12) ─────────────────────────────────
   const netPnlUsd = (currentValueUsd + withdrawnUsd + feesClaimedUsd + feesUnclaimedUsd
                      + incentivesClaimedUsd + incentivesPendingUsd - gasUsd) - initialCapitalUsd;
   const hodlPnlUsd = hodlValueUsd - initialCapitalUsd;
   const lpVsHodlUsd = netPnlUsd - hodlPnlUsd;
+
+  // The identity that must hold. Two independent routes to the same answer:
+  // one through P&L, one through capital plus income. A product whose whole
+  // claim is arithmetic nobody else does cannot afford to publish two figures
+  // that disagree, so it checks itself and admits it rather than choosing one.
+  const earnedForCheck = feesClaimedUsd + feesUnclaimedUsd
+    + incentivesClaimedUsd + incentivesPendingUsd;
+  const reconstructed = divergenceUsd + earnedForCheck - gasUsd;
+  const drift = Math.abs(reconstructed - lpVsHodlUsd);
+  const scale = Math.max(Math.abs(lpVsHodlUsd), Math.abs(initialCapitalUsd), 1);
+  if (drift / scale > 0.005) {
+    degrade('Two independent routes to this position\'s result disagree, so the breakdown below may not add up.');
+  }
 
   // ── Realised APR (spec: APR section) ──────────────────────────────────────
   const openedAt = pos.openedAt || deposits[0]?.timestamp || null;

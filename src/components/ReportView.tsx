@@ -56,11 +56,22 @@ export function ReportView({ address }: { address: string }) {
   }
 
   const covered = l.feesCoverIl;
-  const verdict = l.impermanentLossUsd <= 0
-    ? 'Your positions never diverged from simply holding.'
-    : covered != null && covered >= 1
-      ? `Your fees covered it ${covered.toFixed(1)}x over.`
-      : 'The fees did not cover it.';
+  const gained = l.divergenceGainUsd > 0;
+
+  // Divergence has two directions and only one of them has a famous name. A
+  // pool that converted into the side that fell less leaves you AHEAD of
+  // holding, and reporting that as "no impermanent loss" throws away the more
+  // interesting half of what actually happened.
+  const headlineLabel = gained ? 'Divergence, all time' : 'Impermanent loss, all time';
+  const headlineValue = gained ? l.divergenceGainUsd : l.impermanentLossUsd;
+  const headlineTone = gained ? 'text-gain' : 'text-loss';
+  const verdict = gained
+    ? 'Providing liquidity left you ahead of simply holding, before fees. The pool converted towards whichever side was falling less.'
+    : l.impermanentLossUsd <= 0
+      ? 'Your positions never diverged from simply holding.'
+      : covered != null && covered >= 1
+        ? `Your fees covered it ${covered.toFixed(1)}x over.`
+        : 'The fees did not cover it.';
 
   return (
     <div className="space-y-4">
@@ -77,8 +88,10 @@ export function ReportView({ address }: { address: string }) {
       ) : null}
 
       <header>
-        <Label>Impermanent loss, all time</Label>
-        <p className="hero-num mt-1 text-loss">{usd(l.impermanentLossUsd)}</p>
+        <Label>{headlineLabel}</Label>
+        <p className={`hero-num mt-1 ${headlineTone}`}>
+          {gained ? '+' : ''}{usd(headlineValue)}
+        </p>
         <p className="mt-2 text-[0.9375rem] leading-relaxed">{verdict}</p>
         <p className="mt-1 text-xs text-ink-muted">
           Across {l.positionsOpened} {l.positionsOpened === 1 ? 'position' : 'positions'} on Base
@@ -90,14 +103,17 @@ export function ReportView({ address }: { address: string }) {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <p className="text-xs text-ink-muted">
-              What divergence cost
-              <InfoDot label="What divergence cost">
-                The gap between what your positions are worth and what the same tokens would be
-                worth if you had never deposited them. Every deposit and withdrawal is valued at
-                the price of the day it happened, not at today&rsquo;s.
+              {gained ? 'What divergence gained' : 'What divergence cost'}
+              <InfoDot label="Divergence">
+                What is still in your positions, plus everything already withdrawn, against what
+                the same tokens would be worth if you had never deposited them. Withdrawals count
+                at the price of the day you took them; the comparison is at today&rsquo;s. Fees are
+                not in this figure — they are the next one along.
               </InfoDot>
             </p>
-            <p className="mt-0.5 text-lg font-semibold tnum text-loss">−{usd(l.impermanentLossUsd)}</p>
+            <p className={`mt-0.5 text-lg font-semibold tnum ${gained ? 'text-gain' : 'text-loss'}`}>
+              {gained ? '+' : '−'}{usd(headlineValue)}
+            </p>
           </div>
           <div>
             <p className="text-xs text-ink-muted">

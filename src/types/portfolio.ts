@@ -273,6 +273,7 @@ export interface LifetimeReport {
   rewardsByToken: TokenTotal[];
 
   impermanentLossUsd: number;   // positive number: what divergence cost
+  divergenceGainUsd: number;    // positive number: what divergence gained, when it went the other way
   divergenceUsd: number;        // signed
   feesCoverIl: number | null;   // times over the fees covered it
   netPnlUsd: number;

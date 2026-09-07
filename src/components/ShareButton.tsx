@@ -22,6 +22,13 @@ function shareText(l: LifetimeReport): string {
   const il = usd(l.impermanentLossUsd);
   const earned = usd(l.earnedUsd);
 
+  if (l.divergenceGainUsd > 0) {
+    return `I rebuilt every liquidity position I have ever opened on Base.\n\n`
+      + `Impermanent loss cost me nothing: divergence went my way by ${usd(l.divergenceGainUsd)} `
+      + `across ${l.positionsOpened} positions, plus ${earned} in fees.\n\n`
+      + `Almost no LP knows this number for their own wallet.`;
+  }
+
   if (l.impermanentLossUsd <= 0) {
     return `I checked every liquidity position I have ever opened on Base.\n\n`
       + `Earned ${earned} in fees and emissions, with no divergence from holding.\n\n`

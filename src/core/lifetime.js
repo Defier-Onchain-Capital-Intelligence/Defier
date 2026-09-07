@@ -101,6 +101,10 @@ export function computeLifetime(positions, coverage = {}) {
   // impermanent loss: what concentrating liquidity cost against simply holding.
   const divergenceUsd = sum(withHistory.map((p) => p.pnl.divergenceUsd));
   const impermanentLossUsd = divergenceUsd < 0 ? -divergenceUsd : 0;
+  /** Divergence can go the other way. A pool that converted into the side that
+   *  fell less leaves you ahead of holding, and that is worth naming rather
+   *  than reporting as "no impermanent loss" and moving on. */
+  const divergenceGainUsd = divergenceUsd > 0 ? divergenceUsd : 0;
 
   const ranked = [...withHistory].sort(
     (a, b) => (b.pnl.lpVsHodlUsd ?? 0) - (a.pnl.lpVsHodlUsd ?? 0),
@@ -147,6 +151,7 @@ export function computeLifetime(positions, coverage = {}) {
     rewardsByToken: tokenList(rewardsByToken),
 
     impermanentLossUsd,
+    divergenceGainUsd,
     divergenceUsd,
     /** How many times over the fees covered the divergence. Null when there was none. */
     feesCoverIl: impermanentLossUsd > 0 ? earnedUsd / impermanentLossUsd : null,
