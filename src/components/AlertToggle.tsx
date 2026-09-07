@@ -6,9 +6,15 @@
  * from: the client issues the permission and the client delivers the message.
  * Outside it there is nothing honest to offer, so the control is absent rather
  * than present and broken.
+ *
+ * Every call carries a Quick Auth token. The server takes the viewer's identity
+ * from that signature and ignores anything the page says about who it is, which
+ * is what stops one person from subscribing another to alerts they never asked
+ * for.
  */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useMiniKit } from '@coinbase/onchainkit/minikit';
+import sdk from '@farcaster/miniapp-sdk';
 import type { LpPosition } from '@/types/portfolio';
 import { InfoDot } from '@/components/ui/InfoDot';
 
@@ -20,17 +26,26 @@ export function AlertToggle({ pos, wallet }: { pos: LpPosition; wallet: string }
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
+  const authed = useCallback(async (init?: RequestInit) => {
+    const { token } = await sdk.quickAuth.getToken();
+    return {
+      ...init,
+      headers: { ...(init?.headers || {}), authorization: `Bearer ${token}` },
+    } satisfies RequestInit;
+  }, []);
+
   useEffect(() => {
     if (!fid) return;
     let live = true;
-    fetch(`/api/alerts?fid=${fid}`, { cache: 'no-store' })
+    authed({ cache: 'no-store' })
+      .then((init) => fetch('/api/alerts', init))
       .then((r) => r.json())
       .then((d: { positionIds?: string[] }) => {
         if (live) setOn(Boolean(d.positionIds?.includes(pos.id)));
       })
       .catch(() => { /* the toggle simply starts off */ });
     return () => { live = false; };
-  }, [fid, pos.id]);
+  }, [fid, pos.id, authed]);
 
   if (!fid || pos.closed) return null;
 
@@ -38,15 +53,16 @@ export function AlertToggle({ pos, wallet }: { pos: LpPosition; wallet: string }
     setBusy(true); setNote(null);
     const next = !on;
     try {
-      const res = await fetch('/api/alerts', {
+      const init = await authed({
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          fid, wallet, positionId: pos.id, enable: next,
+          wallet, positionId: pos.id, enable: next,
           poolAddress: pos.poolAddress, tickLower: pos.tickLower,
           tickUpper: pos.tickUpper, pair: pos.symbol,
         }),
       });
+      const res = await fetch('/api/alerts', init);
       const json = await res.json();
       if (!res.ok) setNote(json?.error || 'Could not save that.');
       else setOn(next);

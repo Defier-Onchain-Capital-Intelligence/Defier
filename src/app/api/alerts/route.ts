@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { rateLimit } from '@/lib/rateLimit';
 import { getServerSupabase } from '@/lib/supabase';
+import { fidFromRequest } from '@/lib/quickAuth';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,12 +11,11 @@ const POSITION_RE = /^[a-z0-9-]+:\d+$/;
 /**
  * Subscribe or unsubscribe one position to range alerts.
  *
- * The fid comes from the Mini App context, which the client reads from Base App.
- * It is not cryptographically proven here yet: what that allows is bounded — a
- * forged fid could subscribe someone else to a notification about a wallet they
- * do not own, and nothing more, since no message can be delivered without a
- * token Base App issued to that person. Written down rather than glossed over,
- * and closed with Quick Auth before launch.
+ * The fid comes from a verified Quick Auth token, never from the request body.
+ * The difference is not cosmetic: a body can say it is anyone, and subscribing
+ * someone else to alerts about a wallet they have never seen would deliver real
+ * notifications to a real person who did not ask for them. The token is signed
+ * by the Farcaster auth service and bound to our domain, so the fid is a fact.
  */
 export async function POST(req: Request) {
   const { limited } = rateLimit(req, { max: 30, windowMs: 60_000, prefix: 'alerts' });
@@ -24,19 +24,23 @@ export async function POST(req: Request) {
   const supabase = getServerSupabase();
   if (!supabase) return NextResponse.json({ error: 'Alerts are not available yet.' }, { status: 503 });
 
+  const auth = await fidFromRequest(req);
+  if (!auth.ok) {
+    console.warn('[alerts] rejected', { reason: auth.reason });
+    return NextResponse.json({
+      error: 'Alerts need Base App. Open DeFier there to turn them on.',
+    }, { status: 401 });
+  }
+  const fid = auth.fid;
+
   let body: Record<string, unknown>;
   try { body = await req.json(); } catch {
     return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 });
   }
 
-  const fid = Number(body.fid);
   const wallet = String(body.wallet || '').toLowerCase();
   const positionId = String(body.positionId || '');
   const enable = body.enable !== false;
-
-  if (!Number.isInteger(fid) || fid <= 0) {
-    return NextResponse.json({ error: 'Alerts need Base App. Open DeFier there to turn them on.' }, { status: 400 });
-  }
   if (!ADDRESS_RE.test(wallet) || !POSITION_RE.test(positionId)) {
     return NextResponse.json({ error: 'Invalid wallet or position.' }, { status: 400 });
   }
@@ -80,14 +84,15 @@ export async function POST(req: Request) {
   }
 }
 
+/** Which positions this viewer already watches. Same proof required to read. */
 export async function GET(req: Request) {
   const supabase = getServerSupabase();
   if (!supabase) return NextResponse.json({ positionIds: [] });
 
-  const fid = Number(new URL(req.url).searchParams.get('fid'));
-  if (!Number.isInteger(fid) || fid <= 0) return NextResponse.json({ positionIds: [] });
+  const auth = await fidFromRequest(req);
+  if (!auth.ok) return NextResponse.json({ positionIds: [] });
 
   const { data } = await supabase
-    .from('alert_subscriptions').select('position_id').eq('fid', fid);
+    .from('alert_subscriptions').select('position_id').eq('fid', auth.fid);
   return NextResponse.json({ positionIds: (data ?? []).map((r: { position_id: string }) => r.position_id) });
 }

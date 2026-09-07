@@ -2,8 +2,14 @@
 #
 # Vercel cron on the free plan fires once a day, which is useless for something
 # that has to notice a price crossing a boundary. GitHub Actions runs every five
-# minutes for free and the endpoint it calls is guarded by a shared secret, so
+# minutes for free, and the endpoint it calls is guarded by a shared secret, so
 # the schedule lives here and the logic stays in the app.
+#
+# On failure noise: a scheduled job that fails emails the repository owner every
+# single run. Two states are expected rather than broken — the secrets not being
+# configured yet, and the deployment not having picked them up — so those exit
+# quietly. Only a genuine error is worth an email, because an alarm that cries
+# every five minutes is an alarm nobody reads.
 name: Check range alerts
 
 on:
@@ -11,17 +17,45 @@ on:
     - cron: '*/5 * * * *'
   workflow_dispatch:
 
+concurrency:
+  group: check-alerts
+  cancel-in-progress: false
+
 jobs:
   check:
     runs-on: ubuntu-latest
     steps:
       - name: Call the alert pass
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_URL: ${{ secrets.APP_URL }}
         run: |
-          code=$(curl -s -o /tmp/out.json -w '%{http_code}' \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "${{ secrets.APP_URL }}/api/cron/check-alerts")
-          cat /tmp/out.json
-          if [ "$code" != "200" ]; then
-            echo "Alert pass returned $code"
-            exit 1
+          if [ -z "$CRON_SECRET" ] || [ -z "$APP_URL" ]; then
+            echo "Secrets are not configured yet. Nothing to do."
+            exit 0
           fi
+
+          code=$(curl -sS -m 90 -o /tmp/out.json -w '%{http_code}' \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "${APP_URL%/}/api/cron/check-alerts") || code=000
+
+          echo "HTTP $code"
+          cat /tmp/out.json 2>/dev/null || true
+          echo
+
+          case "$code" in
+            200)
+              exit 0 ;;
+            503)
+              echo "::notice::The deployment does not have CRON_SECRET yet. Redeploy on Vercel."
+              exit 0 ;;
+            404)
+              echo "::error::CRON_SECRET here does not match the one on Vercel."
+              exit 1 ;;
+            000)
+              echo "::warning::Could not reach the app. Treating as transient."
+              exit 0 ;;
+            *)
+              echo "::error::Alert pass returned $code"
+              exit 1 ;;
+          esac

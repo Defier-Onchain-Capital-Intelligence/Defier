@@ -28,11 +28,10 @@ function clamp(text: string, max: number): string {
 /**
  * Record a token. One row per (fid, token), never one per fid.
  *
- * The webhook that calls this is a public URL whose signature we do not verify
- * yet. Keyed by fid alone, a forged event would overwrite a real person's token
- * and silence their alerts. Keyed by (fid, token), the worst it can do is add a
- * row that never works, and the sender deletes those the first time it tries
- * them.
+ * A person legitimately holds several at once — a phone and a desktop each get
+ * their own — so overwriting by fid would silently cut off one of their devices.
+ * The shape also kept the damage bounded back when the webhook was unverified,
+ * and it is worth keeping for both reasons.
  */
 export async function saveNotificationToken(fid: number, token: string, url: string) {
   const supabase = getServerSupabase();
@@ -42,14 +41,19 @@ export async function saveNotificationToken(fid: number, token: string, url: str
   }, { onConflict: 'fid,token' });
 }
 
+/** Revocation, from a webhook event we have proven came from that person. */
+export async function removeTokensForFid(fid: number) {
+  const supabase = getServerSupabase();
+  if (!supabase) return;
+  await supabase.from('notification_tokens').delete().eq('fid', fid);
+}
+
 /**
  * Drop tokens the client itself rejected.
  *
- * This is where revocation is actually enforced, and deliberately so: a disable
- * event arriving at an unverified webhook can be forged, but a token the client
- * reports as invalid cannot. Someone who turns notifications off stops receiving
- * them because Base App stops honouring their token, not because we trusted a
- * message saying they did.
+ * The belt to the webhook's braces. A token can stop being honoured without us
+ * ever seeing an event — the app is deleted, the client rotates it — and this is
+ * what keeps the table from filling with credentials that will never work again.
  */
 export async function removeInvalidTokens(tokens: string[]) {
   const supabase = getServerSupabase();

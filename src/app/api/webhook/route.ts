@@ -1,36 +1,23 @@
 import { NextResponse } from 'next/server';
-import { saveNotificationToken } from '@/lib/notifications';
+import { saveNotificationToken, removeTokensForFid } from '@/lib/notifications';
+import { verifyWebhookEnvelope } from '@/lib/farcasterVerify';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 30;
 
 /**
  * Mini App webhook. Base App posts here when someone adds or removes DeFier, or
  * turns notifications on or off. This is the only place notification permission
  * is granted, and the token it delivers IS that permission.
  *
- * The payload is signed as a Farcaster JSON Farcaster Signature: three base64url
- * segments, header.payload.signature, where the header names the signing fid. We
- * read the fid from the header and the event from the payload.
+ * Every event is verified before it changes anything: the Ed25519 signature must
+ * check out, and the key that made it must be registered to that fid in
+ * Farcaster's Key Registry on Optimism. See lib/farcasterVerify.ts for why the
+ * second half is the part that matters.
  *
- * Verification note: the signature is not cryptographically checked here yet, so
- * everything arriving is treated as untrusted. Two design choices bound what a
- * forged event can do. Tokens are stored one row per (fid, token), so a forgery
- * adds a row that never works instead of overwriting a working one. And a
- * disable event deletes nothing, so nobody can silence someone else by posting
- * here. What remains is junk rows that the sender cleans up the first time it
- * tries them. Verifying the signature closes even that, and it is the first
- * thing to do before launch.
+ * Because events are now proven, a disable event can safely delete tokens again:
+ * the only party who can ask us to stop notifying someone is that someone.
  */
-
-function decodeSegment(segment: string): Record<string, unknown> | null {
-  try {
-    const padded = segment.replace(/-/g, '+').replace(/_/g, '/');
-    return JSON.parse(Buffer.from(padded, 'base64').toString('utf8'));
-  } catch {
-    return null;
-  }
-}
-
 export async function POST(req: Request) {
   let raw: unknown;
   try {
@@ -39,37 +26,34 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false }, { status: 400 });
   }
 
-  const body = raw as { header?: string; payload?: string; event?: string };
+  const verified = await verifyWebhookEnvelope(raw);
+  if (!verified.ok) {
+    // 503 asks the client to try again; 401 tells it not to bother. The
+    // difference matters: a momentary RPC failure should not silently cost
+    // someone their notifications.
+    const status = verified.retryable ? 503 : 401;
+    console.warn('[webhook] rejected', { reason: verified.reason });
+    return NextResponse.json({ ok: false }, { status });
+  }
 
-  // Signed envelope, or a bare event in local testing.
-  const header = typeof body.header === 'string' ? decodeSegment(body.header) : null;
-  const payload = typeof body.payload === 'string' ? decodeSegment(body.payload) : (raw as Record<string, unknown>);
-
-  const fid = Number(header?.fid ?? (raw as { fid?: number }).fid);
-  const event = String(payload?.event ?? '');
-  const details = payload?.notificationDetails as { url?: string; token?: string } | undefined;
+  const { fid, event } = verified;
+  const name = String(event.event ?? '');
+  const details = event.notificationDetails as { url?: string; token?: string } | undefined;
 
   try {
-    if ((event === 'miniapp_added' || event === 'frame_added'
-      || event === 'notifications_enabled') && details?.token && details?.url) {
-      if (Number.isFinite(fid) && fid > 0) {
-        await saveNotificationToken(fid, details.token, details.url);
-      }
+    if ((name === 'miniapp_added' || name === 'frame_added' || name === 'notifications_enabled')
+      && details?.token && details?.url) {
+      await saveNotificationToken(fid, details.token, details.url);
     }
 
-    // A disable event deletes nothing. This endpoint's signature is not verified,
-    // so honouring "stop notifying this person" from an unauthenticated POST
-    // would hand anyone a way to silence anyone. Revocation is enforced where it
-    // cannot be forged: the moment Base App stops honouring a token it reports it
-    // as invalid, and the sender deletes it then.
-    if (event === 'miniapp_removed' || event === 'frame_removed'
-      || event === 'notifications_disabled') {
-      console.info('[webhook] disable event received', { event, fid });
+    if (name === 'miniapp_removed' || name === 'frame_removed'
+      || name === 'notifications_disabled') {
+      await removeTokensForFid(fid);
     }
   } catch (err) {
-    console.error('[webhook] could not record event', { event, err });
-    // Still acknowledge: a client that gets an error retries, and a retry storm
-    // over a database blip helps nobody.
+    console.error('[webhook] could not record verified event', { name, err });
+    // Ask for a retry rather than dropping a real permission change on the floor.
+    return NextResponse.json({ ok: false }, { status: 503 });
   }
 
   return NextResponse.json({ ok: true });
