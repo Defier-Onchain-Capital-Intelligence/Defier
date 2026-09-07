@@ -98,9 +98,11 @@ export function ReportView({ address }: { address: string }) {
         </p>
         {l.coverage.concentrated ? (
           <p className="mt-2 rounded-xl border border-bg-border bg-bg-elevated p-3 text-xs leading-relaxed text-ink-secondary">
-            {l.coverage.concentrated.sharePct.toFixed(0)}% of the capital behind this figure is one
-            position, {l.coverage.concentrated.pair}. It is mostly a statement about that trade
-            rather than about how you provide liquidity.
+            {l.coverage.concentrated.sharePct >= 100
+              ? 'All'
+              : `${l.coverage.concentrated.sharePct.toFixed(1)}%`} of the capital behind this figure
+            is one position, {l.coverage.concentrated.pair}. It is mostly a statement about that
+            trade rather than about how you provide liquidity.
           </p>
         ) : null}
       </header>
@@ -193,10 +195,10 @@ export function ReportView({ address }: { address: string }) {
             info="Every deposit this wallet ever made, valued on the day it went in. Not the same as the most it ever held at once."
           />
           <Stat
-            label="Time providing"
+            label="Time with capital in a pool"
             value={relativeDays(l.daysProviding)}
-            sub={`of ${relativeDays(l.daysSinceFirst)} since the first`}
-            info="Days with capital actually inside a pool. Overlapping positions count once, so this is time exposed, not the sum of position ages."
+            sub={`first position ${relativeDays(l.daysSinceFirst)} ago`}
+            info="Days with capital actually inside a pool. Overlapping positions count once, so this is time exposed rather than the sum of position ages — which is why it can be far shorter than the time since you started."
           />
           <Stat
             label="Beat holding"
@@ -216,6 +218,7 @@ export function ReportView({ address }: { address: string }) {
                     className="rounded-xl bg-bg-elevated/50 p-3 transition-colors hover:bg-bg-elevated">
                 <p className="text-[0.6875rem] text-ink-muted">Best</p>
                 <p className="mt-0.5 truncate text-sm font-medium">{l.best.pair}</p>
+                <p className="text-[0.625rem] text-ink-muted">open {relativeDays(l.best.daysOpen)}</p>
                 <p className={`text-xs tnum ${toneOf(l.best.vsHoldUsd)}`}>
                   {usd(l.best.vsHoldUsd, { sign: true })} vs holding
                 </p>
@@ -226,6 +229,7 @@ export function ReportView({ address }: { address: string }) {
                     className="rounded-xl bg-bg-elevated/50 p-3 transition-colors hover:bg-bg-elevated">
                 <p className="text-[0.6875rem] text-ink-muted">Worst</p>
                 <p className="mt-0.5 truncate text-sm font-medium">{l.worst.pair}</p>
+                <p className="text-[0.625rem] text-ink-muted">open {relativeDays(l.worst.daysOpen)}</p>
                 <p className={`text-xs tnum ${toneOf(l.worst.vsHoldUsd)}`}>
                   {usd(l.worst.vsHoldUsd, { sign: true })} vs holding
                 </p>

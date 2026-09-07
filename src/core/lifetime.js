@@ -219,8 +219,13 @@ export function computeLifetime(positions, coverage = {}) {
         && coverage.discoveryIncomplete !== true && coverage.deep === true,
       historyLoaded: coverage.deep === true,
       /** Set when one position holds 90% or more of the capital these totals rest on. */
+      // 99.94% must not print as 100%: a reader who can see two pairs listed
+      // below will read an exact 100 as a bug, and they would be right to.
       concentrated: dominant
-        ? { pair: dominant.symbol, sharePct: largestShare * 100 }
+        ? {
+            pair: dominant.symbol,
+            sharePct: largestShare >= 0.9995 ? 100 : Math.min(largestShare * 100, 99.9),
+          }
         : null,
     },
   };
