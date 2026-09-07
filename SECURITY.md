@@ -64,6 +64,26 @@ Migrar el motor a viem o a ethers v6 es trabajo post-aplicación, no de esta sem
 la evaluación de `elliptic` y del árbol de wallet cambia por completo: hoy es aceptable justamente
 porque la app es de solo lectura.
 
+### Segunda pasada · 7 sep 2026
+
+Punto de partida: **44 avisos (1 alta, 29 moderadas, 14 bajas)**. Tres `overrides` nuevos, sin tocar
+una sola versión mayor: **0 altas, 0 moderadas, 14 bajas**, y las 14 bajas son un solo aviso.
+
+| Paquete | Severidad | Qué se hizo |
+|---|---|---|
+| `postcss` | **alta** ×2 + moderada ×2 | La entrada anterior la dio por aceptada creyendo que exigía Next 16. Estaba mal: Next traía su propia copia `8.4.31` mientras el proyecto ya dependía de `8.5.28`, que no es vulnerable. `"postcss": "$postcss"` hace que Next use la nuestra. Un solo postcss en el árbol y la alta desaparece, sin cambio mayor |
+| `stream-json` | moderada | DoS O(profundidad²) con JSON anidado. Llega por `jayson` ← `@solana/web3.js` ← Farcaster Mini App SDK. Override a `^3.6.0` |
+| `decode-uri-component` | moderada | DoS por porcentajes malformados, vía `query-string` ← WalletConnect. Override a `^0.5.0` |
+| `uuid` | moderada | Falta un chequeo de límites en v3/v5/v6 cuando se pasa `buf`. Llega por MetaMask SDK y `jayson`. Override a `^11.1.1`. Nada nuestro llama a uuid, y los conectores usan v4, que no está afectada; se arregla igual porque el override resuelve limpio |
+| `elliptic` | baja | **Aceptada, y no tiene arreglo**: el aviso cubre todas las versiones publicadas. Entra por `@ethersproject/signing-key` ← ethers v5. Quitarla significa migrar el motor a ethers v6. Contra qué protege: firmar o verificar con entradas malformadas. Verificado por grep en `src/core`, `src/lib` y `src/app`: no existe `new ethers.Wallet`, ni `signMessage`, ni `signTransaction`, ni `getSigner`, ni ninguna clave privada. El motor **solo lee la cadena** |
+
+Las 14 bajas restantes son el árbol de `@ethersproject/*` colgando de ese único aviso de `elliptic`:
+un paquete por dependencia, no catorce problemas.
+
+Comprobado después de los overrides: `npm run typecheck`, `npm test` (6 pruebas) y `npm run build`
+pasan. Como los conectores de wallet solo se ejercitan en el navegador, el botón de conectar se
+verifica en producción tras el deploy, no en el build.
+
 ## 7. Producto
 - La app es de solo lectura: nunca pide firmas, nunca pide seed phrases, nunca construye transacciones. Decirlo en la UI.
 - Disclaimers: informational only; tokenized stocks only in eligible jurisdictions outside the US.
