@@ -311,12 +311,23 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
         return null;
       }
 
+      // Today's prices for both sides. Without them the HODL benchmark has
+      // nothing to value the deposit against, so the position rebuilds
+      // perfectly and is then thrown out of every total for being unvaluable —
+      // which is what happened to a real WETH/AERO position: found, replayed,
+      // and excluded because nobody had asked what AERO is worth.
+      const [priceNow0, priceNow1] = await Promise.all([
+        fetchTokenPrice(CHAIN, shape.token0.address).catch(() => null),
+        fetchTokenPrice(CHAIN, shape.token1.address).catch(() => null),
+      ]);
+
       const position = toLpPosition({
         protocol: item.protocol,
         tokenId: item.tokenId,
         poolAddress: shape.poolAddress,
         token0: shape.token0,
         token1: shape.token1,
+        prices: { token0: priceNow0, token1: priceNow1 },
         symbol: `${shape.token0.symbol}/${shape.token1.symbol}`,
         inRange: false,
         tickLower: shape.tickLower ?? 0,
