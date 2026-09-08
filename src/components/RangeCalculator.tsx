@@ -55,12 +55,40 @@ export function RangeCalculator({ pool }: { pool: PoolDetail }) {
   }, [point, lowPrice, highPrice, pool]);
 
   if (!grid.length || !point) {
+    // Two different silences, and they used to read as one. "We could not read
+    // it" is an apology for our own limits; "there is nothing there" is a fact
+    // about the pool, and it is the one the reader needs, because the published
+    // APR beside it is annualising fees on liquidity that is not in the pool.
+    const empty = pool.liquidity?.empty === true;
     return (
       <Card>
-        <Label>Range calculator</Label>
-        <p className="muted mt-2 text-[0.8125rem]">
-          We could not read this pool&rsquo;s active liquidity, so a range specific APR would be a guess.
-        </p>
+        <Label>{empty ? 'This pool is empty' : 'Range calculator'}</Label>
+        {empty ? (
+          <>
+            <p className="mt-2 text-[0.8125rem] leading-relaxed">
+              Every position in this pool is out of range at the current price, so there is nothing
+              to trade against and no range that would earn anything.
+            </p>
+            <p className="muted mt-2 text-[0.8125rem] leading-relaxed">
+              {pool.tvlUsd && pool.tvlUsd > 0 ? (
+                <>
+                  It is still listed with {usd(pool.tvlUsd)} of TVL
+                  {pool.volumeUsd1d ? <> and {usd(pool.volumeUsd1d)} of daily volume</> : null}{' '}
+                  because that comes from a data provider rather than from the pool. We read the
+                  pool. Any APR shown for it elsewhere is annualising fees on liquidity that is not
+                  there.
+                </>
+              ) : (
+                <>Nothing here can be simulated until somebody provides liquidity at this price.</>
+              )}
+            </p>
+          </>
+        ) : (
+          <p className="muted mt-2 text-[0.8125rem] leading-relaxed">
+            We could not read this pool&rsquo;s active liquidity, so a range specific APR would be
+            a guess.
+          </p>
+        )}
       </Card>
     );
   }

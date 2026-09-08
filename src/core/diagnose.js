@@ -69,9 +69,16 @@ export async function inspectPool({ pool, wallet, gauge }) {
   // Does OUR configured factory agree that this pool exists at this tick spacing?
   const ourFactoryAddr = FACTORY_ADDRS['aerodrome']?.[CHAIN];
   let factoryAgrees = null;
-  if (ourFactoryAddr && typeof token0 === 'string' && typeof token1 === 'string' && typeof tickSpacing === 'string') {
+  // tickSpacing arrives from a contract call as a number, and this used to
+  // require a string. The lookup therefore never ran, and the report below said
+  // "factoryAgrees: false" — not "we did not ask". A diagnostic that states a
+  // negative it never tested sends the next person looking in the wrong place,
+  // which is exactly what it did.
+  const spacingNum = Number(tickSpacing);
+  if (ourFactoryAddr && typeof token0 === 'string' && typeof token1 === 'string'
+      && Number.isFinite(spacingNum) && spacingNum > 0) {
     const f = new ethers.Contract(ourFactoryAddr, FACTORY_ABI_AERO, provider);
-    factoryAgrees = await call(f, 'getPool', [token0, token1, parseInt(tickSpacing, 10)]);
+    factoryAgrees = await call(f, 'getPool', [token0, token1, spacingNum]);
   }
 
   // Does OUR configured voter know this pool's gauge?
@@ -127,7 +134,10 @@ export async function inspectPool({ pool, wallet, gauge }) {
       voter: voterAddr?.toLowerCase() ?? null,
       nfpm: ourNfpm ?? null,
       factoryReturnsThisPool: factoryAgrees,
-      factoryAgrees: typeof factoryAgrees === 'string' && factoryAgrees === pool.toLowerCase(),
+      // Null when the question could not be asked, so it is never confused with a no.
+      factoryAgrees: typeof factoryAgrees === 'string'
+        ? factoryAgrees.toLowerCase() === pool.toLowerCase()
+        : null,
     },
     voterGauge,
     gauge: gaugeReport,

@@ -249,7 +249,22 @@ export async function buildPoolDetail(pool) {
   const w7 = weightedFeeApr(series, 7);
   const w30 = weightedFeeApr(series, 30);
 
+  /**
+   * Whether this pool holds anything at the price it is trading at.
+   *
+   * A concentrated pool's liquidity() is only what sits at the current tick, so
+   * zero means every position is out of range and nothing can be traded here.
+   * DeFiLlama can still publish a TVL and a volume for such a pool — the
+   * WETH/cbBTC CL10 pool reported eleven million of TVL and thirty eight million
+   * of daily volume while holding forty five dollars of tokens. Passing that
+   * through and then falling silent when no APR can be computed is how a reader
+   * ends up trusting a number about a pool that is not there.
+   */
+  const activeLiquidity = onchain.L_active_str ?? null;
+  const empty = Number(onchain.L_active || 0) === 0;
+
   return {
+    liquidity: { active: activeLiquidity, empty },
     id: pool.pool,
     symbol: pool.symbol,
     variant: poolVariantLabel(pool),

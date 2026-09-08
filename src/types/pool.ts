@@ -56,6 +56,11 @@ export interface PoolDetail {
   tvlUsd: number | null;
   volumeUsd1d: number | null;
   volumeOverTvl: number | null;
+  /**
+   * What the pool holds at the price it trades at. `empty` means every position
+   * is out of range: nothing can be traded, whatever TVL a data provider reports.
+   */
+  liquidity?: { active: string | null; empty: boolean };
   currentTick: number;
   currentPrice: number;
   decimals: { token0: number; token1: number };
