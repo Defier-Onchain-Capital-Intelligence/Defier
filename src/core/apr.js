@@ -62,6 +62,15 @@ export async function resolvePoolAddress(pool, provider, chain) {
   // Base runs more than one Aerodrome Slipstream deployment, and a pool that
   // lives on the second one answers the zero address on the first. Asking only
   // the first is what made every tokenized stock pool unreadable.
+  //
+  // Asking both is not enough on its own. The same pair exists on both
+  // deployments for most of the large Base markets: the first deployment keeps an
+  // abandoned pool holding a few dollars, the second holds the money. Taking the
+  // first factory that answers with a non zero address is how WETH/cbBTC CL10 —
+  // 1841 WETH and 77 cbBTC, about eleven million — was read as a dead pool with
+  // forty five dollars in it, and how the screen concluded the data provider was
+  // lying when the provider was right. So every deployment is asked and the pool
+  // that actually holds liquidity wins.
   const factories = cfgKey === 'aerodrome-v3' && chain === 'base'
     ? [...new Set([factoryAddr, ...AERODROME_CL_DEPLOYMENTS.map((d) => d.factory)])]
     : [factoryAddr];
@@ -70,16 +79,46 @@ export async function resolvePoolAddress(pool, provider, chain) {
   const [t0, t1] = pool.underlyingTokens;
   let lastError = 'Factory returned zero address';
 
+  /** @type {string[]} */
+  const found = [];
   for (const addrOfFactory of factories) {
     try {
       const factory = new ethers.Contract(addrOfFactory, cfg.abi, provider);
       const addr = await withTimeout(factory.getPool(t0, t1, param), 6000);
-      if (addr && addr !== ZERO) return { addr: addr.toLowerCase() };
+      if (addr && addr !== ZERO) {
+        const lower = String(addr).toLowerCase();
+        if (!found.includes(lower)) found.push(lower);
+      }
     } catch (e) {
       lastError = `Factory call failed: ${(e.message || '').slice(0, 80)}`;
     }
   }
-  return { error: lastError };
+
+  if (found.length === 0) return { error: lastError };
+  if (found.length === 1) return { addr: found[0] };
+
+  // More than one deployment answered for the same pair. Ask each what it holds
+  // and keep the largest. A pool whose liquidity() cannot be read is not counted
+  // as empty — it is simply not chosen over one that answered, and if none
+  // answers the first address stands, which is exactly the old behaviour.
+  const measured = await Promise.all(found.map(async (addr) => {
+    try {
+      const pc = new ethers.Contract(addr, AERO_POOL_ABI_MIN, provider);
+      const [unstaked, staked] = await withTimeout(Promise.all([
+        pc.liquidity(),
+        pc.stakedLiquidity().catch(() => ethers.BigNumber.from(0)),
+      ]), 6000);
+      return { addr, liquidity: unstaked.add(staked) };
+    } catch (_) {
+      return { addr, liquidity: null };
+    }
+  }));
+
+  const best = measured
+    .filter((m) => m.liquidity && m.liquidity.gt(0))
+    .sort((a, b) => (a.liquidity.gt(b.liquidity) ? -1 : 1))[0];
+
+  return { addr: best ? best.addr : found[0] };
 }
 
 // ─── On-chain pool data ─────────────────────────────────────────────────────────

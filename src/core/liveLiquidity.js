@@ -1,12 +1,15 @@
 /**
  * Which pools actually hold something at the price they are trading at.
  *
- * The ranking is built from a data provider, and a provider can be wrong in a
- * way that matters: the WETH/cbBTC CL10 pool is listed with eleven million of
- * TVL and thirty eight million of daily volume while the contract holds about
- * forty five dollars of tokens and has no liquidity at the current tick at all.
- * Ranking that above real pools, with an APR beside it, is the ranking telling
- * somebody to put money somewhere nothing can be earned.
+ * A pool can be listed with real volume and hold nothing at the current tick,
+ * and ranking that above real pools, with an APR beside it, is the ranking
+ * telling somebody to put money somewhere nothing can be earned.
+ *
+ * The first version of this check accused the data provider of exactly that for
+ * seven of the largest pairs on Base, and the provider was right: Aerodrome runs
+ * two Slipstream deployments, the same pair exists on both, and the check was
+ * measuring the abandoned one. A pair is only called empty here once every
+ * deployment that knows it has been asked and all of them answered zero.
  *
  * One multicall answers it for every pool in the list, so the check costs a
  * single round trip per cache window rather than a request per pool.
@@ -88,8 +91,10 @@ export async function findEmptyPools(rows) {
   const factoryIface = new ethers.utils.Interface(FACTORY_ABI);
   const factories = AERODROME_CL_DEPLOYMENTS.map((d) => d.factory);
 
-  // A pair can live on either Slipstream deployment, so both are asked and the
-  // first that answers with a real address wins.
+  // A pair can live on either Slipstream deployment, and usually lives on both:
+  // an abandoned pool on the first, the real one on the second. Stopping at the
+  // first non zero address is what made seven of the largest pairs on Base look
+  // dead. Every address the pair resolves to is kept and measured.
   const resolveCalls = candidates.flatMap((r) => {
     const spacing = Number(String(r.variant).slice(2));
     return factories.map((target) => ({
@@ -101,31 +106,37 @@ export async function findEmptyPools(rows) {
 
   const resolved = await aggregate(provider, resolveCalls);
 
-  /** @type {Array<{id: string, address: string}>} */
+  /** @type {Array<{id: string, addresses: string[]}>} */
   const located = [];
   candidates.forEach((r, i) => {
+    const addresses = [];
     for (let f = 0; f < factories.length; f += 1) {
       const res = resolved[i * factories.length + f];
       if (!res?.success) continue;
       try {
         const [addr] = factoryIface.decodeFunctionResult('getPool', res.returnData);
-        if (addr && addr !== ZERO) { located.push({ id: r.id, address: String(addr).toLowerCase() }); return; }
+        const lower = String(addr || '').toLowerCase();
+        if (addr && addr !== ZERO && !addresses.includes(lower)) addresses.push(lower);
       } catch (_) { /* not this factory */ }
     }
+    if (addresses.length > 0) located.push({ id: r.id, addresses });
   });
   if (located.length === 0) return out;
 
   const iface = new ethers.utils.Interface(POOL_ABI);
   // Aerodrome moves staked liquidity out of liquidity(), so both are asked and
   // summed. A pool without the staked half simply fails that call.
-  const liquidityCalls = located.flatMap(({ address }) => ([
+  const flat = located.flatMap(({ id, addresses }) => addresses.map((address) => ({ id, address })));
+  const liquidityCalls = flat.flatMap(({ address }) => ([
     { target: address, allowFailure: true, callData: iface.encodeFunctionData('liquidity') },
     { target: address, allowFailure: true, callData: iface.encodeFunctionData('stakedLiquidity') },
   ]));
 
   const results = await aggregate(provider, liquidityCalls);
 
-  located.forEach(({ id }, i) => {
+  /** @type {Map<string, bigint>} */
+  const best = new Map();
+  flat.forEach(({ id }, i) => {
     const unstaked = results[i * 2];
     const staked = results[i * 2 + 1];
     // Only a pool whose liquidity() answered can be judged. Silence is not
@@ -139,8 +150,13 @@ export async function findEmptyPools(rows) {
     } catch (_) {
       return;
     }
-    out.set(id, total === 0n);
+    const prev = best.get(id);
+    if (prev === undefined || total > prev) best.set(id, total);
   });
+
+  // The pair is empty only when every deployment that knows it answered, and all
+  // of them answered zero. One live deployment is enough to make it live.
+  best.forEach((total, id) => { out.set(id, total === 0n); });
 
   return out;
 }

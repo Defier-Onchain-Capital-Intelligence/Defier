@@ -253,12 +253,17 @@ export async function buildPoolDetail(pool) {
    * Whether this pool holds anything at the price it is trading at.
    *
    * A concentrated pool's liquidity() is only what sits at the current tick, so
-   * zero means every position is out of range and nothing can be traded here.
-   * DeFiLlama can still publish a TVL and a volume for such a pool — the
-   * WETH/cbBTC CL10 pool reported eleven million of TVL and thirty eight million
-   * of daily volume while holding forty five dollars of tokens. Passing that
-   * through and then falling silent when no APR can be computed is how a reader
-   * ends up trusting a number about a pool that is not there.
+   * zero means every position is out of range and nothing can be traded here,
+   * whatever TVL is published for it. Passing that through and then falling
+   * silent when no APR can be computed is how a reader ends up trusting a number
+   * about a pool that is not there.
+   *
+   * This once fired on WETH/cbBTC CL10 and the reading was ours, not the
+   * provider's: Aerodrome runs two Slipstream deployments, the pair exists on
+   * both, and the address resolution was returning the abandoned one. The pool
+   * held eleven million; we were measuring forty five dollars. An emptiness claim
+   * is only as good as the address it was measured at, which is why
+   * resolvePoolAddress now picks the deployment holding liquidity.
    */
   const activeLiquidity = onchain.L_active_str ?? null;
   const empty = Number(onchain.L_active || 0) === 0;
