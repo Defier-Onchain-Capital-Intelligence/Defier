@@ -275,3 +275,58 @@ export async function fetchPriceSeries(chain, address, fromTs) {
 export function clearPriceSeriesCache() {
   _seriesCache.clear();
 }
+
+/**
+ * Current prices with the provider's own confidence attached.
+ *
+ * The plain batch above answers "what is this worth" and is right for a token we
+ * already know is real, because it arrived from a pool we read on chain. Swap
+ * history is the opposite situation: a wallet on Base receives dozens of
+ * airdropped tokens whose only purpose is to look valuable, and a scam token with
+ * a fabricated price would produce the single most spectacular figure in the
+ * whole report. So here the confidence travels with the price and the caller is
+ * expected to throw away anything it does not trust.
+ *
+ * Confidence is DeFiLlama's, on a 0 to 1 scale, and reflects how much agreement
+ * there is between the sources it saw. Absent means unknown, which is treated as
+ * untrustworthy rather than as fine.
+ *
+ * @param {Array<{chain: string, address: string}>} tokens
+ * @returns {Promise<Map<string, {price: number, confidence: number|null, symbol: string|null, decimals: number|null}>>}
+ */
+export async function fetchPricesWithConfidence(tokens) {
+  const out = new Map();
+  if (!tokens?.length) return out;
+
+  const unique = new Map();
+  for (const { chain, address } of tokens) {
+    const addr = String(address || '').toLowerCase();
+    if (!addr) continue;
+    unique.set(`${chain}:${addr}`, { chain, address: addr });
+  }
+
+  const entries = [...unique.values()];
+  for (let i = 0; i < entries.length; i += 60) {
+    const slice = entries.slice(i, i + 60);
+    const keys = slice.map(({ chain, address }) => `${LLAMA_CHAIN[chain] || chain}:${address}`);
+    try {
+      const resp = await withTimeout(fetch(`https://coins.llama.fi/prices/current/${keys.join(',')}`), 10000);
+      const data = await resp.json();
+      for (const { chain, address } of slice) {
+        const coin = data.coins?.[`${LLAMA_CHAIN[chain] || chain}:${address}`];
+        const price = coin?.price;
+        if (typeof price !== 'number' || !(price > 0)) continue;
+        out.set(`${chain}:${address}`, {
+          price,
+          confidence: typeof coin.confidence === 'number' ? coin.confidence : null,
+          symbol: coin.symbol || null,
+          decimals: typeof coin.decimals === 'number' ? coin.decimals : null,
+        });
+      }
+    } catch (_) {
+      // A slice that fails leaves its tokens unpriced, which the caller reports
+      // as unpriced rather than as worthless.
+    }
+  }
+  return out;
+}

@@ -218,3 +218,80 @@ export async function getErc20Transfers({ contractAddress, wallet, max = 300 }) 
   if (received === null && sent === null) return null;
   return [...(received || []), ...(sent || [])].sort((a, b) => a.blockNumber - b.blockNumber);
 }
+
+/**
+ * Every ERC-20, native and internal transfer in or out of one wallet.
+ *
+ * This is the raw material for reconstructing swaps without integrating a single
+ * DEX. A swap, from the wallet's point of view, is just a transaction where one
+ * asset left and another arrived — which is true on Aerodrome, on Uniswap, on an
+ * aggregator, and on whatever launches next month.
+ *
+ * The three categories matter for different reasons. `erc20` is the common case.
+ * `external` catches paying with native ETH, which would otherwise look like a
+ * token appearing out of nowhere. `internal` catches ETH coming back — both the
+ * proceeds of selling a token for ETH and the refund of an overpaid route, and
+ * missing the refund is what would turn a clean swap into an unreadable one.
+ *
+ * Native ETH is reported under the WETH address, because that is where its price
+ * lives, with the symbol kept as ETH so the copy does not claim the user held a
+ * wrapper they never touched.
+ *
+ * @returns {Promise<Array<{blockNumber:number, txHash:string, ts:string|null,
+ *   from:string, to:string, token:string, symbol:string|null, amount:number}>|null>}
+ *   null means the API was unavailable, which is not the same as "there were none".
+ */
+export async function getAllTransfers({ wallet, max = 3000 }) {
+  if (!HAS_ALCHEMY) return null;
+
+  const WETH = '0x4200000000000000000000000000000000000006';
+  const base = {
+    fromBlock: '0x0',
+    toBlock: 'latest',
+    category: ['external', 'internal', 'erc20'],
+    withMetadata: true,
+    excludeZeroValue: true,
+    maxCount: '0x3e8',
+    order: 'asc',
+  };
+
+  const collect = async (direction) => {
+    const out = [];
+    let pageKey;
+    for (let page = 0; page < 8; page += 1) {
+      const params = pageKey ? { ...base, ...direction, pageKey } : { ...base, ...direction };
+      const result = await rpc('alchemy_getAssetTransfers', [params], 20000);
+      if (result === null) return null;
+      for (const t of result.transfers || []) {
+        const native = t.category === 'external' || t.category === 'internal';
+        const token = native ? WETH : (t.rawContract?.address || '').toLowerCase();
+        const amount = Number(t.value);
+        // A transfer we cannot size is not a transfer we can reason about. A
+        // token with no decimals in the index, or a value too large for a double,
+        // is dropped rather than guessed at.
+        if (!token || !Number.isFinite(amount) || amount <= 0) continue;
+        out.push({
+          blockNumber: parseInt(t.blockNum, 16),
+          txHash: t.hash,
+          ts: t.metadata?.blockTimestamp || null,
+          from: (t.from || '').toLowerCase(),
+          to: (t.to || '').toLowerCase(),
+          token,
+          symbol: native ? 'ETH' : (t.asset || null),
+          amount,
+        });
+        if (out.length >= max) return out;
+      }
+      pageKey = result.pageKey;
+      if (!pageKey) break;
+    }
+    return out;
+  };
+
+  const [received, sent] = await Promise.all([
+    collect({ toAddress: wallet }),
+    collect({ fromAddress: wallet }),
+  ]);
+  if (received === null && sent === null) return null;
+  return [...(received || []), ...(sent || [])];
+}
