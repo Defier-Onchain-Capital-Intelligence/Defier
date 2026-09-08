@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { groupTransfersIntoSwaps, valueSwaps, pickMoments, buildSwapMoments } from '../src/core/swaps.js';
+import { groupTransfersIntoSwaps, valueSwaps, pickMoments, buildSwapMoments, attachThen, headlineFor } from '../src/core/swaps.js';
 
 const ME = '0xme';
 const AERO = '0xaero';
@@ -104,7 +104,11 @@ test('the headline states amounts, never a verdict', () => {
   });
   assert.equal(out.moments.length, 1);
   const h = out.moments[0].headline;
-  assert.equal(h, 'On Dec 15, 2025 you swapped 5,000 AERO for 500 USDC. Those 5,000 AERO are $4,000 today.');
+  assert.equal(
+    h,
+    'On Dec 15, 2025 you swapped 5,000 AERO for 500 USDC. '
+    + 'Today those USDC are $500 and that AERO would be $4,000.',
+  );
   for (const banned of ['lost', 'missed', 'should have', 'mistake']) {
     assert.ok(!h.toLowerCase().includes(banned), `headline must not say "${banned}"`);
   }
@@ -131,4 +135,34 @@ test('with no trade that aged well the ranking is untouched', () => {
   ];
   const picked = pickMoments(valued, { limit: 3 });
   assert.deepEqual(picked.map((m) => m.got.symbol), ['DEAD1', 'DEAD2']);
+});
+
+test('the value at the time is shown only when both legs agree on it', () => {
+  const base = { txHash: '0xc', ts: '2025-06-01T00:00:00Z', gave: { token: AERO, symbol: 'AERO', amount: 1000, valueTodayUsd: 800 }, got: { token: USDC, symbol: 'USDC', amount: 100, valueTodayUsd: 100 } };
+  const day = Math.floor(new Date(base.ts).getTime() / 86400000);
+
+  // Both legs priced at about $1,000: a real trade, and they agree.
+  const agree = new Map([[`${AERO}@${day}`, 1], [`${USDC}@${day}`, 10]]);
+  const [ok] = attachThen([base], agree);
+  assert.ok(Math.abs(ok.tradeValueThenUsd - 1000) < 1);
+
+  // The AERO price for that day is nonsense: the legs disagree by 10x, so no
+  // past is invented and the two present day figures stand alone.
+  const disagree = new Map([[`${AERO}@${day}`, 10], [`${USDC}@${day}`, 1]]);
+  const [bad] = attachThen([base], disagree);
+  assert.equal(bad.tradeValueThenUsd, undefined);
+});
+
+test('the headline carries both sides today and the cost at the time', () => {
+  const m = {
+    ts: '2024-11-16T00:00:00Z',
+    gave: { symbol: 'ETH', amount: 0.339, valueTodayUsd: 843 },
+    got: { symbol: 'TALENT', amount: 13111, valueTodayUsd: 2.7 },
+    tradeValueThenUsd: 1120,
+  };
+  assert.equal(
+    headlineFor(m),
+    'On Nov 16, 2024 you swapped 0.339 ETH for 13,111 TALENT — about $1,120 at the time. '
+    + 'Today those TALENT are $2.7 and that ETH would be $843.',
+  );
 });

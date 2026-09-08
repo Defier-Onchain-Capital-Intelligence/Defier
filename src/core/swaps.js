@@ -31,7 +31,7 @@
  */
 
 import { getAllTransfers } from './alchemy.js';
-import { fetchPricesWithConfidence } from './prices.js';
+import { fetchPricesWithConfidence, fetchHistoricalPricesBatch } from './prices.js';
 
 const CHAIN = 'base';
 const WETH = '0x4200000000000000000000000000000000000006';
@@ -168,34 +168,45 @@ function dateLabel(ts) {
 }
 
 /**
- * One sentence per trade, in the only framing the data supports.
+ * One sentence per trade, with the three numbers it takes to mean anything.
  *
- * The spotlight goes on whichever side is worth more today, because that is the
- * side the reader did not end up holding the value of — and it is stated as an
- * amount, not as a verdict. "Those 5,000 AERO are $4,000 today" is checkable.
- * "You lost $3,500" is a claim about a decision we did not observe.
+ * The first version printed only the side worth more today — "those 0.339 ETH are
+ * $843 today" — and Alberto was right that it says nothing. It tells you that you
+ * bought a token and nothing about how that turned out, because the other side is
+ * missing and so is what the trade cost at the time. A reader cannot tell whether
+ * $843 is a lot or a little without knowing what the 13,111 TALENT are worth now
+ * and what the whole thing was worth then.
+ *
+ * So the sentence carries both sides today, and the value at the time whenever it
+ * can be priced. It still states amounts and never a verdict: "you lost $840" is a
+ * claim about a decision we did not observe, and the reader can do that arithmetic
+ * themselves if they want it.
  */
 export function headlineFor(m) {
   const when = dateLabel(m.ts);
   const lead = when ? `On ${when} you swapped` : 'You swapped';
   const gaveTxt = `${amountLabel(m.gave.amount)} ${m.gave.symbol || 'tokens'}`;
   const gotTxt = `${amountLabel(m.got.amount)} ${m.got.symbol || 'tokens'}`;
-  const spotlightGave = m.gave.valueTodayUsd >= m.got.valueTodayUsd;
-  const side = spotlightGave ? m.gave : m.got;
-  const sideTxt = spotlightGave ? gaveTxt : gotTxt;
-  return `${lead} ${gaveTxt} for ${gotTxt}. Those ${sideTxt} are ${usdLabel(side.valueTodayUsd)} today.`;
+
+  // Both sides of a swap are worth the same thing at the moment it happens, so one
+  // figure describes the trade. It is only shown when both legs agreed on it.
+  const then = Number.isFinite(m.tradeValueThenUsd)
+    ? ` — about ${usdLabel(m.tradeValueThenUsd)} at the time`
+    : '';
+
+  return `${lead} ${gaveTxt} for ${gotTxt}${then}. `
+    + `Today those ${m.got.symbol || 'tokens'} are ${usdLabel(m.got.valueTodayUsd)} `
+    + `and that ${m.gave.symbol || 'amount'} would be ${usdLabel(m.gave.valueTodayUsd)}.`;
 }
 
 /**
- * The handful of trades worth showing somebody.
+ * Every trade big enough and lopsided enough to be worth a sentence, in order.
  *
- * Ranked by the plain dollar gap between the two sides at today's price, with a
- * floor on size so dust cannot win and a floor on the gap so an ordinary trade
- * does not get dressed up as a story. Nothing here is a recommendation and
- * nothing here is a score.
+ * A floor on size so dust cannot win, and a floor on the gap so an ordinary trade
+ * does not get dressed up as a story. Nothing here is a recommendation.
  */
-export function pickMoments(valued, { limit = 3, minValueUsd = MIN_VALUE_USD, minMultiple = MIN_MULTIPLE } = {}) {
-  const scored = (valued || [])
+export function rankCandidates(valued, { minValueUsd = MIN_VALUE_USD, minMultiple = MIN_MULTIPLE } = {}) {
+  return (valued || [])
     .map((s) => {
       const hi = Math.max(s.gave.valueTodayUsd, s.got.valueTodayUsd);
       const lo = Math.min(s.gave.valueTodayUsd, s.got.valueTodayUsd);
@@ -209,6 +220,58 @@ export function pickMoments(valued, { limit = 3, minValueUsd = MIN_VALUE_USD, mi
     })
     .filter((s) => s.peakUsd >= minValueUsd && s.multiple >= minMultiple)
     .sort((a, b) => b.gapUsd - a.gapUsd);
+}
+
+/**
+ * The handful of trades worth showing somebody.
+ *
+ * Ranked by the plain dollar gap between the two sides at today's price, with a
+ * floor on size so dust cannot win and a floor on the gap so an ordinary trade
+ * does not get dressed up as a story. Nothing here is a recommendation and
+ * nothing here is a score.
+ */
+/**
+ * What the trade was worth on the day it happened, when that can be established.
+ *
+ * Both sides of a swap are worth the same thing at the moment it executes, which
+ * gives a free integrity check that historical prices badly need: price each leg
+ * at that day and see whether the two agree. When they do not, one of the prices
+ * is wrong — thin markets, a token that barely traded, a day the source had no
+ * data for — and the trade keeps its two present day figures without inventing a
+ * past. Averaging two numbers that disagree would produce a confident middle that
+ * is nobody's price.
+ *
+ * @param {Array<object>} moments
+ * @param {Map<string, number>} historicals  key `${token}@${utcDay}`
+ * @param {number} tolerance  how far the two legs may disagree before neither is used
+ */
+export function attachThen(moments, historicals, { tolerance = 0.35 } = {}) {
+  return (moments || []).map((m) => {
+    const day = m.ts ? Math.floor(new Date(m.ts).getTime() / 86400000) : null;
+    const pGave = day != null ? historicals?.get(`${m.gave.token}@${day}`) : null;
+    const pGot = day != null ? historicals?.get(`${m.got.token}@${day}`) : null;
+    if (!(pGave > 0) || !(pGot > 0)) return m;
+
+    const gaveThen = m.gave.amount * pGave;
+    const gotThen = m.got.amount * pGot;
+    const hi = Math.max(gaveThen, gotThen);
+    const lo = Math.min(gaveThen, gotThen);
+    if (!(hi > 0) || (hi - lo) / hi > tolerance) return m;
+
+    return {
+      ...m,
+      gave: { ...m.gave, valueThenUsd: gaveThen },
+      got: { ...m.got, valueThenUsd: gotThen },
+      // One figure for the trade, because a swap has one value at the time it
+      // happens. The midpoint of two figures that already agree.
+      tradeValueThenUsd: (gaveThen + gotThen) / 2,
+    };
+  });
+}
+
+export function pickMoments(valued, { limit = 3, minValueUsd = MIN_VALUE_USD, minMultiple = MIN_MULTIPLE, historicals = null } = {}) {
+  const ranked = rankCandidates(valued, { minValueUsd, minMultiple });
+  const scored = historicals ? attachThen(ranked, historicals) : ranked;
 
   // Ranking purely by size gives a monotonous card. A wallet that bought a few
   // tokens that went to nothing produces three identical sentences, because ETH
@@ -219,9 +282,16 @@ export function pickMoments(valued, { limit = 3, minValueUsd = MIN_VALUE_USD, mi
   const bought = scored.find((s) => s.spotlight === 'got');
   const chosen = [];
   if (bought && limit > 1) chosen.push(bought);
-  for (const s of scored) {
+
+  // A trade we can price at the time reads far better than one we cannot, so
+  // those go first — but only as a preference. Dropping a striking trade purely
+  // because a two year old price is missing would be letting a data gap choose
+  // what the wallet did.
+  const priceable = scored.filter((s) => s !== bought && Number.isFinite(s.tradeValueThenUsd));
+  const rest = scored.filter((s) => s !== bought && !Number.isFinite(s.tradeValueThenUsd));
+  for (const s of [...priceable, ...rest]) {
     if (chosen.length >= limit) break;
-    if (s !== bought) chosen.push(s);
+    chosen.push(s);
   }
 
   return chosen
@@ -231,6 +301,8 @@ export function pickMoments(valued, { limit = 3, minValueUsd = MIN_VALUE_USD, mi
       date: s.ts,
       gave: s.gave,
       got: s.got,
+      /** What the whole trade was worth the day it happened, or absent. */
+      tradeValueThenUsd: Number.isFinite(s.tradeValueThenUsd) ? s.tradeValueThenUsd : null,
       gapUsd: s.gapUsd,
       multiple: s.multiple,
       /** Which side is worth more today. Not a judgement about the decision. */
@@ -245,10 +317,10 @@ export function pickMoments(valued, { limit = 3, minValueUsd = MIN_VALUE_USD, mi
  * Kept separate from the fetching so it can be tested against fixtures without a
  * network, which is the only way the exclusion rules above stay honest.
  */
-export function buildSwapMoments({ wallet, transfers, prices, limit = 3 }) {
+export function buildSwapMoments({ wallet, transfers, prices, historicals = null, limit = 3 }) {
   const { swaps, skipped } = groupTransfersIntoSwaps(transfers, wallet);
   const { valued, unpriced } = valueSwaps(swaps, prices);
-  const moments = pickMoments(valued, { limit });
+  const moments = pickMoments(valued, { limit, historicals });
 
   return {
     moments,
@@ -266,7 +338,7 @@ export function buildSwapMoments({ wallet, transfers, prices, limit = 3 }) {
        * at today's price on both sides — not a profit and loss, and not a claim
        * about what the wallet did with the proceeds.
        */
-      meaning: 'Each trade is valued at today’s price on both sides. This is not a profit and loss and does not follow what happened to the proceeds.',
+      meaning: 'Each trade shows both sides at today’s price, and what the trade was worth on the day when that could be established. This is not a profit and loss and does not follow what happened to the proceeds.',
     },
   };
 }
@@ -298,7 +370,22 @@ export async function getSwapMoments(wallet, { limit = 3 } = {}) {
     .map((addr) => ({ chain: CHAIN, address: addr }));
   const prices = await fetchPricesWithConfidence(tokens);
 
-  const built = buildSwapMoments({ wallet: address, transfers, prices, limit });
+  // Historical prices are one request per day, so they are fetched only for the
+  // trades that could actually be shown. Ranking first costs nothing: it is the
+  // same pure function, run once without a past and once with it.
+  const shortlist = rankCandidates(valueSwaps(swaps, prices).valued).slice(0, Math.max(limit * 4, 8));
+  const historicals = new Map();
+  for (const c of shortlist) {
+    if (!c.ts) continue;
+    const day = Math.floor(new Date(c.ts).getTime() / 86400000);
+    if (historicals.has(`${c.gave.token}@${day}`)) continue;
+    const at = await fetchHistoricalPricesBatch(CHAIN, [c.gave.token, c.got.token], day * 86400 + 43200);
+    for (const [addr, price] of Object.entries(at)) {
+      historicals.set(`${addr}@${day}`, price);
+    }
+  }
+
+  const built = buildSwapMoments({ wallet: address, transfers, prices, historicals, limit });
   return {
     ...built,
     coverage: {

@@ -21,6 +21,13 @@ export interface SwapMomentFigure {
   date: string | null;
   gaveSymbol: string;
   gotSymbol: string;
+  /** What was actually moved, so the card can show the trade and not only a total. */
+  gaveAmount: string;
+  gotAmount: string;
+  gaveUsdToday: number;
+  gotUsdToday: number;
+  /** What the whole trade was worth the day it happened, or null when unpriceable. */
+  tradeThenUsd: number | null;
   /** Which side is worth more today. Never a verdict about the decision. */
   spotlight: 'gave' | 'got';
   spotlightUsd: number;
@@ -109,15 +116,29 @@ export function swapFiguresFrom(
   result: { moments: Array<Record<string, unknown>>; coverage: Record<string, unknown> },
   tail: string,
 ): SwapCardFigures {
+  const amount = (n: unknown) => {
+    const v = Number(n);
+    if (!Number.isFinite(v)) return '—';
+    if (v >= 1000) return Math.round(v).toLocaleString('en-US');
+    if (v >= 1) return v.toLocaleString('en-US', { maximumFractionDigits: 2 });
+    if (v >= 0.0001) return v.toLocaleString('en-US', { maximumFractionDigits: 6 });
+    return v.toExponential(2);
+  };
+
   const moments = (result.moments || []).map((m) => {
-    const gave = m.gave as { symbol?: string; valueTodayUsd?: number };
-    const got = m.got as { symbol?: string; valueTodayUsd?: number };
+    const gave = m.gave as { symbol?: string; amount?: number; valueTodayUsd?: number };
+    const got = m.got as { symbol?: string; amount?: number; valueTodayUsd?: number };
     const spotlight = (m.spotlight === 'got' ? 'got' : 'gave') as 'gave' | 'got';
     return {
       headline: String(m.headline || ''),
       date: (m.date as string) ?? null,
       gaveSymbol: gave?.symbol || '—',
       gotSymbol: got?.symbol || '—',
+      gaveAmount: amount(gave?.amount),
+      gotAmount: amount(got?.amount),
+      gaveUsdToday: Number(gave?.valueTodayUsd) || 0,
+      gotUsdToday: Number(got?.valueTodayUsd) || 0,
+      tradeThenUsd: Number.isFinite(Number(m.tradeValueThenUsd)) ? Number(m.tradeValueThenUsd) : null,
       spotlight,
       spotlightUsd: Number(spotlight === 'gave' ? gave?.valueTodayUsd : got?.valueTodayUsd) || 0,
       otherUsd: Number(spotlight === 'gave' ? got?.valueTodayUsd : gave?.valueTodayUsd) || 0,
