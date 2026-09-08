@@ -17,6 +17,31 @@ const NAV = [
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+
+  // Documentation is read, not operated. It gets a wider measure and no app
+  // navigation: a bottom bar with five tabs under a page about tick spacing is
+  // furniture from a different room.
+  if (pathname?.startsWith('/docs')) {
+    return (
+      <div className="min-h-screen bg-bg-base">
+        <header className="border-b border-bg-border">
+          <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-5 py-4">
+            <Link href="/docs" className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-accent" />
+              <span className="text-sm font-semibold tracking-[0.12em]">DEFIER</span>
+              <span className="text-sm text-ink-muted">docs</span>
+            </Link>
+            <Link href="/" className="text-[0.8125rem] text-ink-muted hover:text-ink-secondary">
+              Open the app →
+            </Link>
+          </div>
+        </header>
+        <div className="mx-auto w-full max-w-3xl px-5 pb-24">{children}</div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-bg-base">
       <div className="mx-auto w-full max-w-app px-4 pb-28 pt-5">{children}</div>

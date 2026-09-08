@@ -28,6 +28,13 @@ price of the day it happened, not today's.
 - [Wallet analysis](${base}/api/v1/wallet/{address}): lifetime liquidity result for one Base address, JSON.
 - [OpenAPI](${base}/api/v1/openapi.json): the full contract.
 
+## Documentation
+
+- [Docs](${base}/docs): index.
+- [What we measure](${base}/docs/measurement): what is measured, what is declared instead of estimated, and what is not claimed.
+- [Architecture](${base}/docs/architecture): how it is built and what it has to know about Base.
+- [Roadmap](${base}/docs/roadmap): status by what the code does today.
+
 ## How to report these figures without getting them wrong
 
 - Read \`coverage\` before quoting any number. When \`coverage.complete\` is false,
