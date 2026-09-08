@@ -77,8 +77,11 @@ export async function GET(req: Request) {
       // price they trade at. A provider can report millions of TVL for a pool
       // that is empty on chain, and ranking that with an APR beside it tells
       // somebody to put money where nothing can be earned.
-      const empty: Map<string, boolean> = await findEmptyPools(ranked.map((p) => p.pool))
-        .catch(() => new Map());
+      const empty: Map<string, boolean> = await findEmptyPools(ranked.map((p) => ({
+        id: p.pool,
+        tokens: (p.underlyingTokens || []).map((t) => t.toLowerCase()),
+        variant: poolVariantLabel(p),
+      }))).catch(() => new Map());
 
       const pools = ranked
         .map((p) => {
@@ -113,9 +116,7 @@ export async function GET(req: Request) {
              * the chain could not be asked. Never inferred from the provider's
              * numbers, which is exactly what is being checked.
              */
-            emptyOnchain: empty.has(String(p.pool).toLowerCase())
-              ? empty.get(String(p.pool).toLowerCase())
-              : null,
+            emptyOnchain: empty.has(p.pool) ? empty.get(p.pool) : null,
             tokens,
           };
         })
