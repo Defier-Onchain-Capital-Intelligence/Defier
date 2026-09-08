@@ -62,7 +62,7 @@ export function RangeCalculator({ pool }: { pool: PoolDetail }) {
     const empty = pool.liquidity?.empty === true;
     return (
       <Card>
-        <Label>{empty ? 'This pool is empty' : 'Range calculator'}</Label>
+        <Label>{empty ? 'Nothing at this price' : 'Range calculator'}</Label>
         {empty ? (
           <>
             <p className="mt-2 text-[0.8125rem] leading-relaxed">

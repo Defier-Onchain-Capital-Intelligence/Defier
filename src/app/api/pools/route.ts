@@ -4,6 +4,7 @@ import { getBasePools } from '@/lib/llamaPools';
 import { STOCK_ADDRESSES, TOKENIZED_STOCKS } from '@/core/constants.base.js';
 import { classifyRisk, getPoolFeeDec } from '@/core/pools.js';
 import { poolVariantLabel, fetchPoolSeries, weightedFeeApr, hasFreshSeries } from '@/core/poolDetail.js';
+import { findEmptyPools } from '@/core/liveLiquidity.js';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -72,6 +73,13 @@ export async function GET(req: Request) {
         }
       }
 
+      // One multicall for the whole ranking: which of these hold anything at the
+      // price they trade at. A provider can report millions of TVL for a pool
+      // that is empty on chain, and ranking that with an APR beside it tells
+      // somebody to put money where nothing can be earned.
+      const empty: Map<string, boolean> = await findEmptyPools(ranked.map((p) => p.pool))
+        .catch(() => new Map());
+
       const pools = ranked
         .map((p) => {
           const tokens = (p.underlyingTokens || []).map((t) => t.toLowerCase());
@@ -100,6 +108,14 @@ export async function GET(req: Request) {
             /** What DeFiLlama publishes, kept so the two can be compared. */
             publishedApyBase7d: p.apyBase7d ?? null,
             hasStock,
+            /**
+             * True when the pool has no liquidity at the current price, null when
+             * the chain could not be asked. Never inferred from the provider's
+             * numbers, which is exactly what is being checked.
+             */
+            emptyOnchain: empty.has(String(p.pool).toLowerCase())
+              ? empty.get(String(p.pool).toLowerCase())
+              : null,
             tokens,
           };
         })

@@ -77,7 +77,10 @@ function FindPools() {
     const rows = (data?.pools || [])
       .filter((p) => p.tvlUsd >= minTvl)
       .filter((p) => project === 'all' || p.project === project);
+    // A pool with nothing at the current price cannot pay any of these, so it
+    // never leads the ranking whatever the provider reports about it.
     const key = (p: PoolRow) =>
+      p.emptyOnchain === true ? -Infinity :
       sort === 'fee7d' ? (p.feeApr7d ?? -1)
       : sort === 'fee30d' ? (p.feeApr30d ?? -1)
       : sort === 'apy' ? (p.apy ?? -1)
@@ -183,13 +186,25 @@ function PoolRowItem({ pool }: { pool: PoolRow }) {
           </div>
         </div>
         <div className="shrink-0 text-right">
-          <p className="font-semibold tnum text-gain">
-            {pool.feeApr7d != null ? pct(pool.feeApr7d) : '—'}
-          </p>
-          <p className="text-[0.6875rem] text-ink-muted">fees, 7d avg</p>
-          {pool.feeApr30d != null ? (
-            <p className="text-[0.6875rem] tnum text-ink-muted">{pct(pool.feeApr30d)} over 30d</p>
-          ) : null}
+          {/* An APR here would be annualising fees over liquidity that is not in
+              the pool. The row stays — hiding it would leave the reader
+              wondering where the pool went — but it says what it is. */}
+          {pool.emptyOnchain === true ? (
+            <>
+              <p className="font-semibold text-warn">Empty</p>
+              <p className="text-[0.6875rem] text-ink-muted">nothing at this price</p>
+            </>
+          ) : (
+            <>
+              <p className="font-semibold tnum text-gain">
+                {pool.feeApr7d != null ? pct(pool.feeApr7d) : '—'}
+              </p>
+              <p className="text-[0.6875rem] text-ink-muted">fees, 7d avg</p>
+              {pool.feeApr30d != null ? (
+                <p className="text-[0.6875rem] tnum text-ink-muted">{pct(pool.feeApr30d)} over 30d</p>
+              ) : null}
+            </>
+          )}
         </div>
       </div>
 

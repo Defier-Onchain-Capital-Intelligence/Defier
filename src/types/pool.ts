@@ -20,6 +20,8 @@ export interface PoolRow {
   feeAprDays: number;
   publishedApyBase7d: number | null;
   hasStock: boolean;
+  /** No liquidity at the current price. Null when the chain could not be asked. */
+  emptyOnchain?: boolean | null;
   tokens: string[];
 }
 
