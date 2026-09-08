@@ -1,4 +1,5 @@
 import { ImageResponse } from 'next/og';
+import { markDataUri } from '@/lib/brand';
 
 export const dynamic = 'force-static';
 // 1024x1024 because that is what the Mini App manifest requires of iconUrl.
@@ -9,6 +10,10 @@ const SIZE = { width: 1024, height: 1024 };
 /**
  * App icon, generated rather than committed as a binary. One less asset to keep
  * in sync with the design tokens, and it changes when they do.
+ *
+ * The compact drawing, not the full one: this square ends up as a 40 pixel tile
+ * in a Base App listing and as a favicon, and the wide mark loses its branches
+ * at that size.
  */
 export function GET() {
   return new ImageResponse(
@@ -18,15 +23,9 @@ export function GET() {
         alignItems: 'center', justifyContent: 'center',
         background: '#08090C',
       }}>
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          width: 600, height: 600, borderRadius: 144,
-          background: 'linear-gradient(140deg, #3B6EF6 0%, #2E58D0 100%)',
-          fontSize: 380, fontWeight: 700, color: '#F7F8FA',
-          letterSpacing: -16,
-        }}>
-          D
-        </div>
+        {/* Full bleed: every platform rounds the corners itself, and a mark that
+            arrives inside its own rounded card ends up double framed. */}
+        <img src={markDataUri({ size: 660, compact: true })} width={660} height={660} />
       </div>
     ),
     { ...SIZE }

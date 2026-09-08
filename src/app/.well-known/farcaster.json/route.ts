@@ -50,7 +50,11 @@ export async function GET() {
       webhookUrl: `${base}/api/webhook`,
       primaryCategory: 'finance',
       tags: ['defi', 'liquidity', 'analytics', 'base', 'stocks'],
-      tagline: 'Did your LP beat holding?',
+      // The brand line is broader than the wedge on purpose: lending and
+      // combined strategies are the same question asked of a different position.
+      // The report's own wording stays narrow, because that is where the numbers
+      // are and a headline may not claim more than the engine measured.
+      tagline: 'Did DeFi actually beat holding?',
       ogTitle: 'DeFier',
       ogDescription: 'Know what your capital is actually earning on Base.',
   };
