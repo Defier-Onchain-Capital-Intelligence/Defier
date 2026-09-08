@@ -38,6 +38,12 @@ export async function GET() {
       subtitle: 'Onchain capital intelligence',
       description: 'Find out whether providing liquidity actually beat holding the same tokens, reconstructed from every onchain event at the price of the day it happened.',
       iconUrl: `${base}/icon.png`,
+      // The embed wants 3:2 and Open Graph wants 1.91:1. Two images rather than
+      // one bent to fit both: the tool's preview was cropping the words.
+      imageUrl: `${base}/embed.png`,
+      buttonTitle: 'Analyse a wallet',
+      heroImageUrl: `${base}/og.png`,
+      ogImageUrl: `${base}/og.png`,
       splashImageUrl: `${base}/icon.png`,
       splashBackgroundColor: '#08090C',
       homeUrl: base,

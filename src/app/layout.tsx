@@ -25,7 +25,7 @@ export const metadata: Metadata = {
     // Base App reads this to render the app as an embed rather than a plain link.
     'fc:miniapp': JSON.stringify({
       version: '1',
-      imageUrl: `${APP_URL}/og.png`,
+      imageUrl: `${APP_URL}/embed.png`,   // 3:2, the shape an embed actually is
       button: {
         title: 'Analyse a wallet',
         action: { type: 'launch_miniapp', name: 'DeFier', url: APP_URL, splashBackgroundColor: '#08090C' },
