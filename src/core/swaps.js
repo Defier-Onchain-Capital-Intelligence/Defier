@@ -195,15 +195,37 @@ export function headlineFor(m) {
  * nothing here is a score.
  */
 export function pickMoments(valued, { limit = 3, minValueUsd = MIN_VALUE_USD, minMultiple = MIN_MULTIPLE } = {}) {
-  return (valued || [])
+  const scored = (valued || [])
     .map((s) => {
       const hi = Math.max(s.gave.valueTodayUsd, s.got.valueTodayUsd);
       const lo = Math.min(s.gave.valueTodayUsd, s.got.valueTodayUsd);
-      return { ...s, gapUsd: hi - lo, multiple: lo > 0 ? hi / lo : Infinity, peakUsd: hi };
+      return {
+        ...s,
+        gapUsd: hi - lo,
+        multiple: lo > 0 ? hi / lo : Infinity,
+        peakUsd: hi,
+        spotlight: s.gave.valueTodayUsd >= s.got.valueTodayUsd ? 'gave' : 'got',
+      };
     })
     .filter((s) => s.peakUsd >= minValueUsd && s.multiple >= minMultiple)
+    .sort((a, b) => b.gapUsd - a.gapUsd);
+
+  // Ranking purely by size gives a monotonous card. A wallet that bought a few
+  // tokens that went to nothing produces three identical sentences, because ETH
+  // is expensive and dead tokens are not — and the one trade that aged well never
+  // gets a slot. So the best trade whose purchase is worth more today is reserved
+  // one place when it exists. This changes which trades are shown, never what any
+  // of them says.
+  const bought = scored.find((s) => s.spotlight === 'got');
+  const chosen = [];
+  if (bought && limit > 1) chosen.push(bought);
+  for (const s of scored) {
+    if (chosen.length >= limit) break;
+    if (s !== bought) chosen.push(s);
+  }
+
+  return chosen
     .sort((a, b) => b.gapUsd - a.gapUsd)
-    .slice(0, limit)
     .map((s) => ({
       txHash: s.txHash,
       date: s.ts,
@@ -212,7 +234,7 @@ export function pickMoments(valued, { limit = 3, minValueUsd = MIN_VALUE_USD, mi
       gapUsd: s.gapUsd,
       multiple: s.multiple,
       /** Which side is worth more today. Not a judgement about the decision. */
-      spotlight: s.gave.valueTodayUsd >= s.got.valueTodayUsd ? 'gave' : 'got',
+      spotlight: s.spotlight,
       headline: headlineFor(s),
     }));
 }
@@ -262,7 +284,8 @@ export const SWAP_RULES = { MIN_CONFIDENCE, MIN_VALUE_USD, MIN_MULTIPLE };
  */
 export async function getSwapMoments(wallet, { limit = 3 } = {}) {
   const address = String(wallet || '').toLowerCase();
-  const transfers = await getAllTransfers({ wallet: address });
+  const fetched = await getAllTransfers({ wallet: address });
+  const transfers = fetched?.transfers ?? null;
   if (transfers === null) {
     return {
       moments: [],
@@ -276,5 +299,18 @@ export async function getSwapMoments(wallet, { limit = 3 } = {}) {
   const prices = await fetchPricesWithConfidence(tokens);
 
   const built = buildSwapMoments({ wallet: address, transfers, prices, limit });
-  return { ...built, coverage: { available: true, ...built.coverage, transfersRead: transfers.length, notSwaps: skipped.oneSided + skipped.complex } };
+  return {
+    ...built,
+    coverage: {
+      available: true,
+      ...built.coverage,
+      transfersRead: transfers.length,
+      notSwaps: skipped.oneSided + skipped.complex,
+      /**
+       * False here means the history was cut short, so "every trade" is a claim
+       * we have not earned and the screen must say the oldest ones are missing.
+       */
+      complete: !fetched.truncated,
+    },
+  };
 }

@@ -111,3 +111,24 @@ test('the headline states amounts, never a verdict', () => {
   assert.equal(out.coverage.swapsFound, 1);
   assert.equal(out.coverage.swapsPriced, 1);
 });
+
+test('the trade that aged well keeps a slot, so the card is not three funerals', () => {
+  const valued = [
+    { txHash: '0x1', ts: null, gave: { symbol: 'ETH', amount: 1, valueTodayUsd: 2500 }, got: { symbol: 'DEAD1', amount: 1, valueTodayUsd: 3 } },
+    { txHash: '0x2', ts: null, gave: { symbol: 'ETH', amount: 1, valueTodayUsd: 2400 }, got: { symbol: 'DEAD2', amount: 1, valueTodayUsd: 4 } },
+    { txHash: '0x3', ts: null, gave: { symbol: 'ETH', amount: 1, valueTodayUsd: 2300 }, got: { symbol: 'DEAD3', amount: 1, valueTodayUsd: 5 } },
+    { txHash: '0x4', ts: null, gave: { symbol: 'USDC', amount: 500, valueTodayUsd: 500 }, got: { symbol: 'WIN', amount: 10, valueTodayUsd: 1800 } },
+  ];
+  const picked = pickMoments(valued, { limit: 3 });
+  assert.equal(picked.length, 3);
+  assert.ok(picked.some((m) => m.got.symbol === 'WIN'), 'the winner must be shown');
+});
+
+test('with no trade that aged well the ranking is untouched', () => {
+  const valued = [
+    { txHash: '0x1', ts: null, gave: { symbol: 'ETH', amount: 1, valueTodayUsd: 2500 }, got: { symbol: 'DEAD1', amount: 1, valueTodayUsd: 3 } },
+    { txHash: '0x2', ts: null, gave: { symbol: 'ETH', amount: 1, valueTodayUsd: 2400 }, got: { symbol: 'DEAD2', amount: 1, valueTodayUsd: 4 } },
+  ];
+  const picked = pickMoments(valued, { limit: 3 });
+  assert.deepEqual(picked.map((m) => m.got.symbol), ['DEAD1', 'DEAD2']);
+});

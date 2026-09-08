@@ -237,8 +237,13 @@ export async function getErc20Transfers({ contractAddress, wallet, max = 300 }) 
  * lives, with the symbol kept as ETH so the copy does not claim the user held a
  * wrapper they never touched.
  *
- * @returns {Promise<Array<{blockNumber:number, txHash:string, ts:string|null,
- *   from:string, to:string, token:string, symbol:string|null, amount:number}>|null>}
+ * A wallet busy enough to exhaust the page budget gets a truncated answer, and
+ * `truncated` says so. Reading a partial history and calling it a lifetime is the
+ * one failure mode this feature has, so the flag travels to the screen.
+ *
+ * @returns {Promise<{transfers: Array<{blockNumber:number, txHash:string, ts:string|null,
+ *   from:string, to:string, token:string, symbol:string|null, amount:number}>,
+ *   truncated: boolean}|null>}
  *   null means the API was unavailable, which is not the same as "there were none".
  */
 export async function getAllTransfers({ wallet, max = 3000 }) {
@@ -257,6 +262,7 @@ export async function getAllTransfers({ wallet, max = 3000 }) {
 
   const collect = async (direction) => {
     const out = [];
+    out.truncated = false;
     let pageKey;
     for (let page = 0; page < 8; page += 1) {
       const params = pageKey ? { ...base, ...direction, pageKey } : { ...base, ...direction };
@@ -280,10 +286,11 @@ export async function getAllTransfers({ wallet, max = 3000 }) {
           symbol: native ? 'ETH' : (t.asset || null),
           amount,
         });
-        if (out.length >= max) return out;
+        if (out.length >= max) { out.truncated = true; return out; }
       }
       pageKey = result.pageKey;
       if (!pageKey) break;
+      if (page === 7) out.truncated = true;
     }
     return out;
   };
@@ -293,5 +300,8 @@ export async function getAllTransfers({ wallet, max = 3000 }) {
     collect({ fromAddress: wallet }),
   ]);
   if (received === null && sent === null) return null;
-  return [...(received || []), ...(sent || [])];
+  return {
+    transfers: [...(received || []), ...(sent || [])],
+    truncated: Boolean(received?.truncated || sent?.truncated),
+  };
 }

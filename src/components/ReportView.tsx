@@ -24,6 +24,7 @@ import { Card, Label, Skeleton, EmptyState, BackLink } from '@/components/ui/Pri
 import { InfoDot } from '@/components/ui/InfoDot';
 import { TokenLogo } from '@/components/ui/TokenLogo';
 import { ShareButton } from '@/components/ShareButton';
+import { TradesCard } from '@/components/TradesCard';
 import { useReport } from '@/lib/useReport';
 
 export function ReportView({ address }: { address: string }) {
@@ -135,6 +136,8 @@ export function ReportView({ address }: { address: string }) {
       </Card>
 
       <ShareButton lifetime={l} address={address} />
+
+      <TradesCard address={address} />
 
       <Card>
         <Label>What you actually got paid</Label>
