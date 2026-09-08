@@ -2,7 +2,7 @@
 
 **Onchain capital intelligence on Base.**
 
-Live: https://defier-alpha.vercel.app
+Live: https://www.getdefier.com
 
 Dashboards show you data. DeFier tells you the answer: what your capital is actually
 earning, and whether providing liquidity beat simply holding the tokens.
@@ -28,7 +28,14 @@ asks for a seed phrase.
   adjusted balances, and detected inside liquidity pools.
 - **Exposure** · every LP decomposed into its current token amounts, grouped by asset class.
 - **Simulate** · the LP versus HODL curve across a price range, preloaded from a real position.
+- **Value history** · the same headline figure day by day, rebuilt from events rather than
+  accumulated from snapshots, so it is complete from a wallet's first position.
+- **Trades worth a mention** · what the wallet swapped, reconstructed from transfers rather
+  than from any single exchange, valued at today's price on both sides. Not a profit and
+  loss, and it says so.
 - **Ask** · an agent that answers with figures produced by the engine, never invented ones.
+- **An API for agents** · `GET /api/v1/wallet/{address}`, with every figure carrying its
+  coverage scope. OpenAPI at `/api/v1/openapi.json`, reading rules at `/llms.txt`.
 
 ## Stack
 
@@ -55,6 +62,10 @@ Two rules keep the numbers honest:
 1. `src/core/` is the only place a financial formula may live. The UI never calculates.
 2. Every position carries a `confidence` flag and a `notes[]` list. When a historical
    price or an event cannot be resolved, the product says so instead of guessing.
+
+Longer form: [ARCHITECTURE.md](./ARCHITECTURE.md) for how it is built and what it has to
+know about Base, [MEASUREMENT.md](./MEASUREMENT.md) for what it measures and what it
+refuses to, [ROADMAP.md](./ROADMAP.md) for what is shipped and what is next.
 
 ## Running locally
 
