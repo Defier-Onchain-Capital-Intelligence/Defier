@@ -28,9 +28,11 @@ export async function GET() {
       }
     : undefined;
 
-  return NextResponse.json({
-    ...(accountAssociation ? { accountAssociation } : {}),
-    frame: {
+  // The spec renamed this key to `miniapp` and kept `frame` for backward
+  // compatibility. Different hosts read different ones, and the cost of getting
+  // it wrong is a listing that silently never appears, so both are emitted with
+  // the same content.
+  const miniapp = {
       version: '1',
       name: 'DeFier',
       subtitle: 'Onchain capital intelligence',
@@ -45,7 +47,12 @@ export async function GET() {
       tagline: 'Did your LP beat holding?',
       ogTitle: 'DeFier',
       ogDescription: 'Know what your capital is actually earning on Base.',
-    },
+  };
+
+  return NextResponse.json({
+    ...(accountAssociation ? { accountAssociation } : {}),
+    miniapp,
+    frame: miniapp,
   }, {
     headers: { 'cache-control': 'public, max-age=300' },
   });
