@@ -58,10 +58,18 @@ a wallet.
 - **More venues on Base**, on the same rule: a venue is added when its positions can be
   reconstructed exactly, not when its pools can be listed.
 
+## Under consideration, and what it would take
+
+- **Managing positions from inside DeFier.** Opening, adjusting and closing across
+  protocols in one place is the natural end of a product that already tells you what to
+  do. It is not built and it is not next: it would be non-custodial and signed by the
+  user, never custodial, and it does not ship until the read only half is trusted. Every
+  figure this product shows is checkable against the chain; a transaction is not, and
+  earning the right to build one is the point of doing the measurement first.
+
 ## Not planned
 
-- **Writing transactions.** DeFier is read only by design. No signature, no approval, no
-  transaction building. This is not a phase.
+- **Custody.** DeFier will never hold user funds, at any stage.
 - **Other chains**, while Base is not finished.
 - **Predictions.** The simulator solves stated assumptions and prints them. It does not
   forecast, and no figure in this product is advice.

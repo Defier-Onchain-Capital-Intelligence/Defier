@@ -13,8 +13,9 @@ history, valuing each deposit, withdrawal, fee claim and reward at the price on 
 it happened, and comparing that against the counterfactual of never having provided
 liquidity at all.
 
-Read only. DeFier never asks for a signature, never builds a transaction, and never
-asks for a seed phrase.
+Read only today. DeFier never asks for a signature, never builds a transaction, and
+never asks for a seed phrase. Managing positions from inside the product is on the
+roadmap and would be non-custodial and user-signed; custody never is.
 
 ## What it does
 

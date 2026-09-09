@@ -3,8 +3,10 @@
 DeFier answers one question — did providing liquidity beat holding the same tokens —
 and everything below exists to make that answer checkable rather than plausible.
 
-Read only. The app never builds a transaction and never requests a signature. There is
-no code path from a user action to a wallet write.
+Read only today. The app never builds a transaction and never requests a signature:
+there is no code path from a user action to a wallet write. Position management is on
+the roadmap and would be non-custodial and user-signed, and it does not ship until the
+measurement half is trusted.
 
 ## The shape
 
