@@ -226,8 +226,35 @@ export async function buildPoolDetail(pool) {
     };
   };
 
-  const grid = gridFor(tickSpacing).map((w) => aprAt(w, w)).filter(Boolean);
+  const widths = gridFor(tickSpacing);
+  const grid = widths.map((w) => aprAt(w, w)).filter(Boolean);
   const fullRange = aprAt(0.999, 0.999);
+
+  /**
+   * Every combination of a lower and an upper bound, solved here.
+   *
+   * A real range is not symmetric. Somebody who thinks the price is more likely
+   * to fall than rise puts more of the range below, and the old product let them
+   * do exactly that; the slider we shipped only offered the same distance on both
+   * sides, which is a different instrument from the one people actually open.
+   *
+   * Solving it per drag would mean a request per pixel, and computing it in the
+   * browser would put a money formula outside core, which is the one rule this
+   * codebase does not bend. So the whole matrix is solved once, here, and handed
+   * over: twenty widths each side is four hundred rows of four numbers, small
+   * enough to send and instant to read. Dragging a handle reads a cell.
+   */
+  const aprMatrix = widths.map((lo) => widths.map((hi) => {
+    const point = aprAt(lo, hi);
+    if (!point) return null;
+    // Only what the screen reads. The full object four hundred times over is
+    // mostly repeated keys.
+    return {
+      f: Math.round(point.feeAprPct * 100) / 100,
+      r: point.rewardAprPct == null ? null : Math.round(point.rewardAprPct * 100) / 100,
+      t: Math.round(point.totalAprPct * 100) / 100,
+    };
+  }));
 
   // Liquidity shape. Best effort: the subgraph may be down and the RPC walk is
   // slow, so a missing histogram degrades the screen rather than failing it.
@@ -270,6 +297,10 @@ export async function buildPoolDetail(pool) {
 
   return {
     liquidity: { active: activeLiquidity, empty },
+    /** The half widths this pool's tick spacing allows, low and high alike. */
+    widths,
+    /** aprMatrix[lowIndex][highIndex] — fee, reward and total for that range. */
+    aprMatrix,
     id: pool.pool,
     symbol: pool.symbol,
     variant: poolVariantLabel(pool),

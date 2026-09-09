@@ -90,6 +90,10 @@ export interface PoolDetail {
   };
   fullRange: AprPoint | null;
   aprGrid: AprPoint[];
+  /** The half widths this pool's tick spacing allows. Both bounds use this list. */
+  widths?: number[];
+  /** aprMatrix[low][high] — fee, reward and total APR for that asymmetric range. */
+  aprMatrix?: Array<Array<{ f: number; r: number | null; t: number } | null>>;
   presets: Array<{ label: string; pctLow: number; pctHigh: number }>;
   histogram?: HistogramBucket[];
 }

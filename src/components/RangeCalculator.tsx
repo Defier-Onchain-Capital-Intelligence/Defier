@@ -1,38 +1,113 @@
 'use client';
 /**
- * Pick a range, see what it pays.
+ * Pick a range on the liquidity, see what it pays.
  *
- * The whole argument for concentrated liquidity is compressed into one number
- * nobody is shown: the concentration multiple. A pool advertising 21% pays 21%
- * to somebody spread across every price; the same pool pays multiples of that
- * inside a tight range, and takes the position out of range that much sooner.
- * Both halves of that trade are on this control at once.
+ * Two things were wrong with the version this replaces, and both mattered.
  *
- * The APRs are solved on the server against the pool's real active liquidity and
- * handed over as a table. Moving the slider reads a row. Nothing here computes
- * money, and nothing here waits on the network.
+ * The bars were drawn with the bucket's liquidity as a literal CSS percentage,
+ * so a pool whose liquidity sits in one place — which is most of them — rendered
+ * as a single stripe with a flat line beside it. Nothing was broken; the chart
+ * simply had no scale. Heights are now relative to the fullest bucket, on a
+ * square root scale so a bucket with a hundredth of the liquidity is still
+ * visible rather than rounding to nothing.
+ *
+ * And the range was symmetric. A real range is not: somebody who thinks the
+ * price is likelier to fall than rise puts more of it below. Both bounds now
+ * move independently, each snapping to a width this pool's tick spacing can
+ * actually hold, and the APR is read out of a matrix the server solved. Dragging
+ * a handle reads a cell — nothing here computes money and nothing waits on the
+ * network.
  */
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import type { PoolDetail, AprPoint } from '@/types/pool';
+import type { PoolDetail } from '@/types/pool';
 import { usd, pct, price as fmtPrice } from '@/lib/format';
 import { Card, Label } from '@/components/ui/Primitives';
 import { InfoDot } from '@/components/ui/InfoDot';
 
+/** Nearest allowed width to a fraction away from the current price. */
+function snap(widths: number[], target: number): number {
+  let best = 0;
+  for (let i = 1; i < widths.length; i += 1) {
+    if (Math.abs(widths[i] - target) < Math.abs(widths[best] - target)) best = i;
+  }
+  return best;
+}
+
 export function RangeCalculator({ pool }: { pool: PoolDetail }) {
-  const grid = pool.aprGrid || [];
+  const widths = pool.widths?.length ? pool.widths : pool.aprGrid.map((g) => g.pctLow);
+  const matrix = pool.aprMatrix;
+
   // Open on the middle of what this pool's presets suggest, not on an arbitrary
   // width: a CL1 pool and a CL2000 pool are read at completely different scales.
-  const suggested = pool.presets?.[1]?.pctLow ?? 0.05;
-  const initial = Math.max(grid.findIndex((g) => g.pctLow >= suggested), 0);
-  const [i, setI] = useState(initial >= 0 ? initial : Math.floor(grid.length / 2));
+  const start = snap(widths, pool.presets?.[1]?.pctLow ?? 0.05);
+  const [lo, setLo] = useState(start);
+  const [hi, setHi] = useState(start);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const dragging = useRef<'lo' | 'hi' | null>(null);
 
-  const point: AprPoint | undefined = grid[i];
-  const lowPrice = point ? pool.currentPrice * (1 - point.pctLow) : null;
-  const highPrice = point ? pool.currentPrice * (1 + point.pctHigh) : null;
+  const lowPrice = pool.currentPrice * (1 - widths[lo]);
+  const highPrice = pool.currentPrice * (1 + widths[hi]);
+
+  const point = useMemo(() => {
+    const cell = matrix?.[lo]?.[hi];
+    if (cell) return { feeAprPct: cell.f, rewardAprPct: cell.r, totalAprPct: cell.t };
+    // Without a matrix the symmetric grid still answers, which is what an older
+    // cached payload will have.
+    const g = pool.aprGrid[lo] || pool.aprGrid[Math.min(lo, pool.aprGrid.length - 1)];
+    return g ? { feeAprPct: g.feeAprPct, rewardAprPct: g.rewardAprPct, totalAprPct: g.totalAprPct } : null;
+  }, [matrix, lo, hi, pool.aprGrid]);
+
+  /**
+   * The horizontal axis is log price, because a tick is a constant ratio and
+   * that makes buckets evenly spaced. It spans the liquidity we can see and the
+   * range that is selected, whichever is wider — a handle dragged past the
+   * histogram must stay on screen.
+   */
+  const domain = useMemo(() => {
+    const prices = (pool.histogram || []).map((b) => b.priceAdjusted).filter((p) => p > 0);
+    const loEdge = Math.min(lowPrice, ...(prices.length ? [Math.min(...prices)] : [lowPrice]));
+    const hiEdge = Math.max(highPrice, ...(prices.length ? [Math.max(...prices)] : [highPrice]));
+    const pad = (Math.log(hiEdge) - Math.log(loEdge)) * 0.06 || 0.01;
+    return { a: Math.log(loEdge) - pad, b: Math.log(hiEdge) + pad };
+  }, [pool.histogram, lowPrice, highPrice]);
+
+  const xOf = (price: number) => {
+    if (!(price > 0)) return 0;
+    const f = (Math.log(price) - domain.a) / (domain.b - domain.a);
+    return Math.min(100, Math.max(0, f * 100));
+  };
+  const priceOf = (fraction: number) =>
+    Math.exp(domain.a + Math.min(1, Math.max(0, fraction)) * (domain.b - domain.a));
+
+  const maxBucket = useMemo(
+    () => Math.max(...(pool.histogram || []).map((b) => b.liquidityHuman || 0), 0),
+    [pool.histogram],
+  );
+
+  function onPointerDown(which: 'lo' | 'hi') {
+    return (e: React.PointerEvent) => {
+      e.preventDefault();
+      dragging.current = which;
+      (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    };
+  }
+
+  function onPointerMove(e: React.PointerEvent) {
+    if (!dragging.current || !trackRef.current) return;
+    const rect = trackRef.current.getBoundingClientRect();
+    const price = priceOf((e.clientX - rect.left) / rect.width);
+    // A bound is stored as a distance from the current price, so a handle
+    // dragged across the price simply pins at the tightest width the pool holds.
+    const away = Math.abs(price - pool.currentPrice) / pool.currentPrice;
+    const idx = snap(widths, away);
+    if (dragging.current === 'lo') setLo(idx); else setHi(idx);
+  }
+
+  const endDrag = () => { dragging.current = null; };
 
   const simulateHref = useMemo(() => {
-    if (!point || !lowPrice || !highPrice) return null;
+    if (!point) return null;
     const params = new URLSearchParams({
       entry: String(pool.currentPrice),
       low: String(lowPrice),
@@ -43,9 +118,9 @@ export function RangeCalculator({ pool }: { pool: PoolDetail }) {
       pair: pool.symbol || '',
       project: pool.project || '',
       from: 'pool',
+      pool: pool.id,
     });
     if (pool.variant) params.set('variant', pool.variant);
-    // Without the spacing the simulator would let the range off this pool's grid.
     if (pool.tickSpacing) params.set('ts', String(pool.tickSpacing));
     if (pool.tokens?.token0?.symbol) params.set('s0', pool.tokens.token0.symbol);
     if (pool.tokens?.token1?.symbol) params.set('s1', pool.tokens.token1.symbol);
@@ -54,11 +129,10 @@ export function RangeCalculator({ pool }: { pool: PoolDetail }) {
     return `/simulate?${params.toString()}`;
   }, [point, lowPrice, highPrice, pool]);
 
-  if (!grid.length || !point) {
+  if (!widths.length || !point) {
     // Two different silences, and they used to read as one. "We could not read
     // it" is an apology for our own limits; "there is nothing there" is a fact
-    // about the pool, and it is the one the reader needs, because the published
-    // APR beside it is annualising fees on liquidity that is not in the pool.
+    // about the pool, and it is the one the reader needs.
     const empty = pool.liquidity?.empty === true;
     return (
       <Card>
@@ -71,13 +145,8 @@ export function RangeCalculator({ pool }: { pool: PoolDetail }) {
             </p>
             <p className="muted mt-2 text-[0.8125rem] leading-relaxed">
               {pool.tvlUsd && pool.tvlUsd > 0 ? (
-                <>
-                  It is still listed with {usd(pool.tvlUsd)} of TVL
-                  {pool.volumeUsd1d ? <> and {usd(pool.volumeUsd1d)} of daily volume</> : null}{' '}
-                  because that comes from a data provider rather than from the pool. We read the
-                  pool. Any APR shown for it elsewhere is annualising fees on liquidity that is not
-                  there.
-                </>
+                <>It is still listed with {usd(pool.tvlUsd)} of TVL because that comes from a data
+                provider rather than from the pool. We read the pool.</>
               ) : (
                 <>Nothing here can be simulated until somebody provides liquidity at this price.</>
               )}
@@ -97,30 +166,74 @@ export function RangeCalculator({ pool }: { pool: PoolDetail }) {
     <Card>
       <div className="flex items-baseline justify-between gap-3">
         <Label>What a range would pay</Label>
-        <span className="text-xs text-ink-muted tnum">
-          ±{pct(point.pctLow * 100, point.pctLow < 0.01 ? 2 : 1)}
+        <span className="text-xs tnum text-ink-muted">
+          −{pct(widths[lo] * 100, widths[lo] < 0.01 ? 2 : 1)} / +{pct(widths[hi] * 100, widths[hi] < 0.01 ? 2 : 1)}
         </span>
       </div>
 
-      {pool.histogram?.length ? (
-        <Histogram
-          buckets={pool.histogram}
-          currentPrice={pool.currentPrice}
-          low={lowPrice}
-          high={highPrice}
-        />
-      ) : null}
+      {/* The chart and its handles. Touch and mouse take the same path. */}
+      <div
+        ref={trackRef}
+        className="relative mt-4 h-28 touch-none select-none"
+        onPointerMove={onPointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        onPointerLeave={endDrag}
+      >
+        <div className="absolute inset-0 flex items-end">
+          {(pool.histogram || []).map((b, idx) => {
+            const inSel = b.priceAdjusted >= lowPrice && b.priceAdjusted <= highPrice;
+            // Square root of the share of the fullest bucket. Linear heights make
+            // every bucket but one invisible on a pool with concentrated liquidity,
+            // which is most of them.
+            const h = maxBucket > 0 ? Math.sqrt((b.liquidityHuman || 0) / maxBucket) * 100 : 0;
+            return (
+              <div
+                key={`${b.tickLower}-${idx}`}
+                className={`flex-1 rounded-t-[2px] ${
+                  b.isActive ? 'bg-accent' : inSel ? 'bg-accent/45' : 'bg-ink-muted/25'
+                }`}
+                style={{ height: `${Math.max(h, 2)}%` }}
+                title={fmtPrice(b.priceAdjusted)}
+              />
+            );
+          })}
+        </div>
 
-      <input
-        type="range"
-        min={0}
-        max={grid.length - 1}
-        step={1}
-        value={i}
-        onChange={(e) => setI(Number(e.target.value))}
-        aria-label="Range width"
-        className="mt-4 w-full accent-accent"
-      />
+        {/* The selected band, and the price as it stands. */}
+        <div
+          className="pointer-events-none absolute inset-y-0 border-x border-accent bg-accent/10"
+          style={{ left: `${xOf(lowPrice)}%`, width: `${Math.max(xOf(highPrice) - xOf(lowPrice), 0.5)}%` }}
+        />
+        <div
+          className="pointer-events-none absolute inset-y-0 w-px bg-ink-secondary/70"
+          style={{ left: `${xOf(pool.currentPrice)}%` }}
+        />
+
+        {(['lo', 'hi'] as const).map((which) => (
+          <div
+            key={which}
+            role="slider"
+            tabIndex={0}
+            aria-label={which === 'lo' ? 'Lower bound' : 'Upper bound'}
+            aria-valuenow={Math.round((which === 'lo' ? widths[lo] : widths[hi]) * 10000) / 100}
+            onPointerDown={onPointerDown(which)}
+            onKeyDown={(e) => {
+              const set = which === 'lo' ? setLo : setHi;
+              const cur = which === 'lo' ? lo : hi;
+              // One press is one tick spacing, which is the smallest move this
+              // pool can actually make.
+              if (e.key === 'ArrowLeft') set(Math.max(0, cur - 1));
+              if (e.key === 'ArrowRight') set(Math.min(widths.length - 1, cur + 1));
+            }}
+            className="absolute inset-y-0 -ml-2 w-4 cursor-ew-resize"
+            style={{ left: `${xOf(which === 'lo' ? lowPrice : highPrice)}%` }}
+          >
+            <div className="mx-auto h-full w-0.5 bg-accent" />
+            <div className="absolute left-1/2 top-1/2 h-5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-accent bg-bg-surface" />
+          </div>
+        ))}
+      </div>
 
       <div className="mt-1 flex items-baseline justify-between text-[0.6875rem] tnum text-ink-muted">
         <span>{fmtPrice(lowPrice)}</span>
@@ -128,18 +241,33 @@ export function RangeCalculator({ pool }: { pool: PoolDetail }) {
         <span>{fmtPrice(highPrice)}</span>
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-1.5">
+      {/* The same two bounds as numbers, under the chart they belong to. */}
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        <Bound
+          label="Range low"
+          value={-widths[lo] * 100}
+          onStep={(d) => setLo(Math.min(widths.length - 1, Math.max(0, lo + d)))}
+          price={lowPrice}
+        />
+        <Bound
+          label="Range high"
+          value={widths[hi] * 100}
+          onStep={(d) => setHi(Math.min(widths.length - 1, Math.max(0, hi + d)))}
+          price={highPrice}
+        />
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-1.5">
         {pool.presets.map((p) => {
-          const target = grid.reduce((best, g, idx) =>
-            Math.abs(g.pctLow - p.pctLow) < Math.abs(grid[best].pctLow - p.pctLow) ? idx : best, 0);
+          const idx = snap(widths, p.pctLow);
+          const active = idx === lo && idx === hi;
           return (
             <button
               key={p.label}
               type="button"
-              onClick={() => setI(target)}
+              onClick={() => { setLo(idx); setHi(idx); }}
               className={`rounded-full border px-2.5 py-1 text-[0.6875rem] transition-colors ${
-                target === i
-                  ? 'border-accent bg-accent/10 text-accent'
+                active ? 'border-accent bg-accent/10 text-accent'
                   : 'border-bg-border text-ink-secondary hover:text-ink-primary'
               }`}
             >
@@ -149,21 +277,16 @@ export function RangeCalculator({ pool }: { pool: PoolDetail }) {
         })}
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="mt-4 grid grid-cols-3 gap-3">
         <Figure label="Fee APR" value={pct(point.feeAprPct)} tone="text-ink-primary"
-          info="Trading fees only. Your dollar's share of the liquidity that is actually earning at this price, times what the pool takes in fees over a year at today's volume." />
+          info="Trading fees only. Your dollar's share of the liquidity actually earning at this price, times what the pool takes in fees over a year at today's volume." />
         <Figure
           label={pool.rewardLabel || 'Rewards'}
           value={point.rewardAprPct != null ? pct(point.rewardAprPct) : '—'}
           tone="text-stock"
-          info="Emissions from the pool gauge, which require staking the position NFT. They are shared out by liquidity in range in exactly the same proportion as fees, so this is the same share applied to the gauge's annual emissions." />
+          info="Emissions from the pool gauge, which require staking the position NFT. They are shared out by liquidity in range in the same proportion as fees." />
         <Figure label="Total APR" value={pct(point.totalAprPct)} tone="text-gain"
           info="Fees plus emissions for this range. It assumes the price stays inside it: out of range, both go to zero." />
-        <Figure
-          label="Concentration"
-          value={point.concentrationX != null ? `${point.concentrationX.toFixed(1)}x` : '—'}
-          tone="text-ink-primary"
-          info="How much more this range earns than the same dollar spread across every price. The multiple that buys you the extra yield is the same one that takes you out of range sooner." />
       </div>
 
       {simulateHref ? (
@@ -176,22 +299,32 @@ export function RangeCalculator({ pool }: { pool: PoolDetail }) {
         </Link>
       ) : null}
 
-      {pool.averageDollar.feeAprPct != null ? (
-        <p className="mt-4 rounded-xl bg-bg-elevated p-3 text-[0.6875rem] leading-relaxed text-ink-secondary">
-          For reference, the average dollar already in this pool earns{' '}
-          <span className="tnum text-ink-primary">{pct(pool.averageDollar.feeAprPct)}</span> in fees.
-          That average is mostly made of tightly concentrated positions, which is why a wide range
-          here pays so much less than it: your dollar would be sharing the same fees with all the
-          liquidity sitting right at the price.
-        </p>
-      ) : null}
-
       <p className="mt-3 text-[0.6875rem] leading-relaxed text-ink-muted">
-        Computed against the liquidity actually in the pool right now and its last 24h of volume.
-        Both move, so this is what the range would pay at today&rsquo;s trading, not a promise about
-        tomorrow.
+        Each bound moves one tick spacing at a time, because that is the smallest step this pool can
+        hold. Computed against the liquidity actually in the pool right now and its last 24h of
+        volume — both move, so this is what the range would pay at today&rsquo;s trading.
       </p>
     </Card>
+  );
+}
+
+function Bound({ label, value, onStep, price }: {
+  label: string; value: number; onStep: (d: number) => void; price: number;
+}) {
+  return (
+    <div className="rounded-xl border border-bg-border bg-bg-elevated px-3 py-2">
+      <p className="text-[0.6875rem] text-ink-muted">{label}</p>
+      <div className="mt-0.5 flex items-center justify-between gap-2">
+        <button type="button" onClick={() => onStep(-1)} aria-label={`${label} down`}
+          className="h-6 w-6 rounded-md border border-bg-border text-ink-secondary hover:text-ink-primary">−</button>
+        <span className="tnum text-[0.9375rem] font-medium">
+          {value > 0 ? '+' : ''}{value.toFixed(Math.abs(value) < 1 ? 2 : 1)}%
+        </span>
+        <button type="button" onClick={() => onStep(1)} aria-label={`${label} up`}
+          className="h-6 w-6 rounded-md border border-bg-border text-ink-secondary hover:text-ink-primary">+</button>
+      </div>
+      <p className="mt-0.5 text-center text-[0.625rem] tnum text-ink-muted">{fmtPrice(price)}</p>
+    </div>
   );
 }
 
@@ -205,42 +338,6 @@ function Figure({ label, value, tone, info }: {
         <InfoDot label={label}>{info}</InfoDot>
       </p>
       <p className={`mt-0.5 font-semibold tnum ${tone}`}>{value}</p>
-    </div>
-  );
-}
-
-/** Where the liquidity already sits. Your range competes with these bars for the same fees. */
-function Histogram({ buckets, currentPrice, low, high }: {
-  buckets: PoolDetail['histogram'];
-  currentPrice: number;
-  low: number | null;
-  high: number | null;
-}) {
-  if (!buckets?.length) return null;
-  return (
-    <div className="mt-4">
-      <div className="flex h-20 items-end gap-px">
-        {buckets.map((b, idx) => {
-          const inSelection = low != null && high != null
-            && b.priceAdjusted >= low && b.priceAdjusted <= high;
-          return (
-            <div
-              key={`${b.tickLower}-${idx}`}
-              className={`flex-1 rounded-sm transition-colors ${
-                b.isActive ? 'bg-accent'
-                  : inSelection ? 'bg-accent/45'
-                  : 'bg-ink-muted/20'
-              }`}
-              style={{ height: `${Math.max(b.liquidityHuman, 1.5)}%` }}
-              title={`${fmtPrice(b.priceAdjusted)}`}
-            />
-          );
-        })}
-      </div>
-      <p className="mt-1.5 text-[0.625rem] text-ink-muted">
-        Liquidity already in the pool. The lit bars are the range you have selected;
-        the bright one is where the price is now.
-      </p>
     </div>
   );
 }

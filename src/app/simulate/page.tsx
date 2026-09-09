@@ -13,6 +13,7 @@ export default async function SimulatePage({
     entry?: string; low?: string; high?: string; size?: string; apr?: string; days?: string;
     pair?: string; variant?: string; project?: string;
     s0?: string; s1?: string; a0?: string; a1?: string; from?: string; ts?: string;
+    pool?: string;
   }>;
 }) {
   const q = await searchParams;
@@ -45,6 +46,10 @@ export default async function SimulatePage({
           tickSpacing: num(q.ts),
           source: q.from === 'position' ? 'position' : q.from === 'pool' ? 'pool' : undefined,
         }}
+        // Arriving from a pool screen, the simulator loads that pool's own APR
+        // table so the figure moves with the range instead of being frozen at
+        // whatever the link was built with.
+        poolId={/^[a-z0-9-]{8,64}$/i.test(q.pool || '') ? q.pool : undefined}
       />
     </Suspense>
   );

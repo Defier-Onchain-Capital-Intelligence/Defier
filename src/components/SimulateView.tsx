@@ -100,9 +100,10 @@ function snapPct(pct: number, tickSpacing?: number) {
 const priceFrom = (entry: number, pct: number) => entry * (1 + pct / 100);
 const pctFrom = (entry: number, price: number) => (price / entry - 1) * 100;
 
-export function SimulateView({ preset, context }: {
+export function SimulateView({ preset, context, poolId }: {
   preset?: SimPreset;
   context?: SimContext;
+  poolId?: string;
 }) {
   const [form, setForm] = useState<FormState>(() => {
     const entryPrice = preset?.entryPrice ?? 2500;
@@ -117,6 +118,36 @@ export function SimulateView({ preset, context }: {
   });
   const [zoom, setZoom] = useState(DEFAULT_ZOOM);
   const [ctx, setCtx] = useState<SimContext | undefined>(context);
+  /**
+   * The pool's own APR table, when this simulation is about a real pool.
+   *
+   * The form used to ask the reader for an expected APR, which is the one number
+   * they came here to find out. Nobody knows what their range will pay — that is
+   * the question. So when a pool is in play the APR is read from the matrix the
+   * server solved for it, and it moves as the range moves.
+   */
+  const [aprSource, setAprSource] = useState<{
+    widths: number[];
+    matrix: PoolDetail['aprMatrix'];
+    rewardLabel: string | null;
+  } | null>(null);
+
+  // A simulation opened from a pool screen carries that pool's id. Fetching its
+  // table is what turns the APR from a number frozen into the link into one that
+  // answers the range being dragged. It fails quietly: the caller's figure stands.
+  useEffect(() => {
+    if (!poolId) return;
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch(`/api/pool/${poolId}`);
+        const pool: PoolDetail = await res.json();
+        if (!alive || !res.ok || !pool?.widths?.length || !pool.aprMatrix) return;
+        setAprSource({ widths: pool.widths, matrix: pool.aprMatrix, rewardLabel: pool.rewardLabel ?? null });
+      } catch (_) { /* the simulation still works without it */ }
+    })();
+    return () => { alive = false; };
+  }, [poolId]);
   const [points, setPoints] = useState<Point[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -189,19 +220,50 @@ export function SimulateView({ preset, context }: {
 
   const atEntry = points?.find((p) => p.price >= form.entryPrice)?.pnlVsHold ?? null;
 
+  /**
+   * What this exact range pays, read from the pool rather than typed in.
+   *
+   * Both bounds are distances from the current price, which is how the matrix is
+   * indexed, so a move on either side lands on a different cell. Without a pool
+   * behind the simulation there is nothing to read and the figure the caller
+   * arrived with stands.
+   */
+  const rangeApr = useMemo(() => {
+    if (!aprSource?.widths?.length || !aprSource.matrix) return null;
+    const near = (target: number) => {
+      let best = 0;
+      for (let i = 1; i < aprSource.widths.length; i += 1) {
+        if (Math.abs(aprSource.widths[i] - target) < Math.abs(aprSource.widths[best] - target)) best = i;
+      }
+      return best;
+    };
+    const cell = aprSource.matrix[near(Math.abs(lowPct) / 100)]?.[near(Math.abs(highPct) / 100)];
+    return cell ?? null;
+  }, [aprSource, lowPct, highPct]);
+
+  // The curve is solved from one APR, so the one the pool reports is the one it
+  // gets. Written into the form rather than passed around it, because everything
+  // downstream already reads the form.
+  useEffect(() => {
+    if (rangeApr && Math.abs(rangeApr.t - form.aprPct) > 0.005) {
+      setForm((f) => ({ ...f, aprPct: rangeApr.t }));
+    }
+  }, [rangeApr, form.aprPct]);
+
   /** A pool chosen here fills the form from that pool, not from defaults. */
   function applyPool(pool: PoolDetail) {
     const preferred = pool.presets?.[1];
     const lowPct = preferred ? -preferred.pctLow * 100 : -5;
     const highPct = preferred ? preferred.pctHigh * 100 : 5;
-    const apr = pool.published?.apyBase7dPct ?? pool.published?.apyBasePct ?? 20;
+    setAprSource(pool.widths?.length && pool.aprMatrix
+      ? { widths: pool.widths, matrix: pool.aprMatrix, rewardLabel: pool.rewardLabel ?? null }
+      : null);
 
     setForm((f) => ({
       ...f,
       entryPrice: pool.currentPrice,
       lowPct: round2(lowPct),
       highPct: round2(highPct),
-      aprPct: round2(apr),
     }));
     setZoom(DEFAULT_ZOOM);
     setCtx({
@@ -305,13 +367,26 @@ export function SimulateView({ preset, context }: {
                 onChange={(e) => setForm((f) => ({ ...f, positionUsd: Number(e.target.value) }))}
               />
             </Field>
-            <Field label="Expected APR" suffix="%">
-              <input
-                type="number" step="0.1" className="input tnum pr-10"
-                value={form.aprPct}
-                onChange={(e) => setForm((f) => ({ ...f, aprPct: Number(e.target.value) }))}
-              />
-            </Field>
+            {rangeApr ? (
+              <div>
+                <p className="text-[0.6875rem] text-ink-muted">APR for this range</p>
+                <div className="mt-1 rounded-xl border border-bg-border bg-bg-elevated px-3 py-[0.6875rem]">
+                  <p className="tnum text-[0.9375rem] font-semibold text-gain">{round2(rangeApr.t)}%</p>
+                  <p className="mt-0.5 text-[0.625rem] tnum text-ink-muted">
+                    {round2(rangeApr.f)}% fees
+                    {rangeApr.r != null ? ` · ${round2(rangeApr.r)}% ${aprSource?.rewardLabel || 'rewards'}` : ''}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <Field label="Expected APR" suffix="%">
+                <input
+                  type="number" step="0.1" className="input tnum pr-10"
+                  value={form.aprPct}
+                  onChange={(e) => setForm((f) => ({ ...f, aprPct: Number(e.target.value) }))}
+                />
+              </Field>
+            )}
           </div>
 
           {step ? (
