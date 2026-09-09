@@ -73,14 +73,6 @@ export function HoldingsView({ address, initialTab }: { address: string; initial
         </>
       )}
 
-      {tab !== 'crypto' && holdings.stocks.lines.length ? (
-        <p className="px-1 text-[0.6875rem] leading-relaxed text-ink-muted">
-          One token is not permanently one share. Dividends and splits raise a multiplier
-          instead of minting tokens, so the share figure above is what you could redeem.
-          Tokenized stocks are issued by Coinbase and available only to eligible users
-          outside the United States.
-        </p>
-      ) : null}
     </div>
   );
 }
@@ -111,8 +103,8 @@ function BucketHeader({ bucket, side }: { bucket: HoldingsBucket; side: Side }) 
         <div className="mt-4">
           <div className="flex items-baseline justify-between text-xs">
             <span className="text-ink-secondary">
-              Earning something
-              <InfoDot label="Earning something">
+              Earning yield
+              <InfoDot label="Earning yield">
                 Money inside a liquidity position or supplied to a lender is being paid: fees,
                 emissions or interest. Money sitting in your wallet is not. Neither is right or
                 wrong — idle capital is a choice, but it should be a choice you can see.

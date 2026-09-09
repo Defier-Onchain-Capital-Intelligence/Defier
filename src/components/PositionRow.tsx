@@ -73,9 +73,15 @@ export function PositionRow({ position, wallet }: { position: LpPosition; wallet
         </div>
       ) : null}
 
+      {/* "So far" on a closed position reads as if the clock were still
+          running and the figure were being diluted by every day since. It is
+          not: a closed position's APR is computed over the days it was actually
+          open, from the first deposit to the last event, and it stopped moving
+          when the position did. The label now says which of the two it is. */}
       {apr != null ? (
         <p className="mt-1.5 text-[0.6875rem] text-ink-muted">
-          <span className="text-gain tnum">{pct(apr)}</span> real APR so far
+          <span className="text-gain tnum">{pct(apr)}</span>{' '}
+          {position.closed ? 'real APR while it was open' : 'real APR so far'}
         </p>
       ) : null}
     </Link>

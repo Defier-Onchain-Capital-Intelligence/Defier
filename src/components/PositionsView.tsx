@@ -18,7 +18,7 @@ type Tab = 'open' | 'closed';
 /** The list of a wallet's positions, hosted by the Pools screen. */
 export function PositionsList({ address, initialTab }: { address: string; initialTab: Tab }) {
   const [tab, setTab] = useState<Tab>(initialTab);
-  const { data, error } = usePortfolio(address, { deep: true });
+  const { data, error, loadingHistory } = usePortfolio(address, { deep: true });
 
   if (error) return <EmptyState title="We could not read that wallet" body={error} />;
   if (!data) return <div className="space-y-3"><Skeleton className="h-10" /><Skeleton className="h-48" /></div>;
@@ -31,7 +31,13 @@ export function PositionsList({ address, initialTab }: { address: string; initia
   return (
     <div className="space-y-4">
       <div className="flex gap-1 rounded-xl bg-bg-surface border border-bg-border p-1">
-        {([['open', `Open (${open.length})`], ['closed', `History (${closed.length})`]] as const).map(([key, label]) => (
+        {/* A count of zero while the history is still being rebuilt reads as
+            "this wallet has nothing", which is a different statement from "we
+            have not finished looking". Until it lands, the tab says so. */}
+        {([
+          ['open', `Open (${open.length})`],
+          ['closed', loadingHistory ? 'History…' : `History (${closed.length})`],
+        ] as const).map(([key, label]) => (
           <button
             key={key}
             type="button"
@@ -43,7 +49,7 @@ export function PositionsList({ address, initialTab }: { address: string; initia
         ))}
       </div>
 
-      {tab === 'closed' ? (
+      {tab === 'closed' && !(loadingHistory && closed.length === 0) ? (
         <Card>
           <Label>This wallet, all time</Label>
           <div className="mt-3 grid grid-cols-2 gap-4">
@@ -79,7 +85,18 @@ export function PositionsList({ address, initialTab }: { address: string; initia
         </Card>
       ) : null}
 
-      {shown.length === 0 ? (
+      {tab === 'closed' && loadingHistory && closed.length === 0 ? (
+        <Card>
+          <p className="text-sm text-ink-secondary">Rebuilding every position this wallet has closed.</p>
+          <p className="muted mt-1 text-xs">
+            Reading onchain events, including positions whose NFT was burned. This takes a moment.
+          </p>
+          <div className="mt-3 space-y-2">
+            <Skeleton className="h-10" />
+            <Skeleton className="h-10" />
+          </div>
+        </Card>
+      ) : shown.length === 0 ? (
         <EmptyState
           title={tab === 'open' ? 'Nothing deployed' : 'No history yet'}
           body={tab === 'open'
