@@ -43,6 +43,23 @@ a wallet.
   Monthly keys for people and integrations. [x402](https://www.coinbase.com/developer-platform/discover/launches/x402)
   per call for agents, which is Coinbase's own standard, settles in USDC on Base, and
   needs no account.
+- **Positions held through vfat.** A wallet that farms Aerodrome through
+  [vfat.io](https://vfat.io) looks empty to us, and that is a real hole rather
+  than an edge case: vfat deploys a smart contract wallet per user, called a
+  Sickle, and the positions belong to the Sickle. The user still owns it, and
+  DeBank and Rabby already show these, so a portfolio that quietly omits them is
+  wrong rather than incomplete.
+
+  The mechanism makes this small. `SickleFactory.sickles(owner)` returns a
+  user's Sickle in one call, and deployment is a deterministic clone salted with
+  `keccak256(abi.encode(owner))`, so the address is derivable before it exists.
+  One extra read per wallet, and every position that comes back goes through the
+  same reconstruction as any other. Two things to get right: the factory keeps a
+  pointer to its predecessor and falls back to it, which is the same trap as
+  Aerodrome's two Slipstream deployments and has to be asked the same way; and
+  the result is attributed to the user's own wallet, with the Sickle named, so
+  nobody has to learn what a Sickle is to read their own P&L.
+
 - **Public documentation site.** Architecture, measurement policy and API in one place.
 - **Cost per wallet, measured.** A full reconstruction is roughly ninety seconds of work
   and a real number of compute units. No price is set until that number is measured
