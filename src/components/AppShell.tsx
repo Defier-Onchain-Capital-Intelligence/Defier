@@ -7,6 +7,7 @@
 import { Suspense } from 'react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
+import { useAccount } from 'wagmi';
 
 const NAV = [
   { href: '/',          label: 'Portfolio' },
@@ -61,9 +62,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 function NavBar() {
   const pathname = usePathname();
   const params = useSearchParams();
+  const { address: connected } = useAccount();
   // The wallet under inspection follows you across tabs. Losing it on every
-  // navigation is the fastest way to make a tool feel broken.
-  const wallet = params.get('wallet') || params.get('address') || '';
+  // navigation is the fastest way to make a tool feel broken — and it did:
+  // landing on a tab with no address in the URL produced "no wallet yet" beside
+  // a connected wallet badge. The connected account is the fallback, so a link
+  // is never built without one when one exists.
+  const wallet = params.get('wallet') || params.get('address') || connected?.toLowerCase() || '';
 
   return (
     <div className="mx-auto flex w-full max-w-app items-stretch px-2 py-2">
