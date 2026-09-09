@@ -6,7 +6,7 @@
  * position beat holding the same tokens. Where the line crosses zero is the
  * decision; everything else is context.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, ReferenceLine, ReferenceArea,
 } from 'recharts';
@@ -250,6 +250,16 @@ export function SimulateView({ preset, context, poolId }: {
     }
   }, [rangeApr, form.aprPct]);
 
+  /**
+   * Where the form starts, so picking a pool can bring it into view.
+   *
+   * The picker is a long list. Choosing from it swapped the list for a one line
+   * card, which is correct but invisible: the browser keeps the scroll position,
+   * so somebody who had scrolled down to find their pair ended up looking at
+   * whatever happened to land there, with no sign that anything had happened.
+   */
+  const formRef = useRef<HTMLDivElement>(null);
+
   /** A pool chosen here fills the form from that pool, not from defaults. */
   function applyPool(pool: PoolDetail) {
     const preferred = pool.presets?.[1];
@@ -276,6 +286,11 @@ export function SimulateView({ preset, context, poolId }: {
       address1: pool.tokens?.token1?.address,
       tickSpacing: pool.tickSpacing ?? undefined,
       source: 'picker',
+    });
+
+    // After the list collapses, not during: the layout has to settle first.
+    requestAnimationFrame(() => {
+      formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
   }
 
@@ -326,6 +341,7 @@ export function SimulateView({ preset, context, poolId }: {
         <PoolPicker onPick={applyPool} />
       )}
 
+      <div ref={formRef}>
       <Card>
         <Label>Position</Label>
 
@@ -406,6 +422,7 @@ export function SimulateView({ preset, context, poolId }: {
           </Field>
         </div>
       </Card>
+      </div>
 
       {invalid ? <EmptyState title="That range cannot exist" body={invalid} /> : null}
       {error && !invalid ? <EmptyState title="That does not compute" body={error} /> : null}
@@ -502,10 +519,6 @@ export function SimulateView({ preset, context, poolId }: {
                 {form.days} days, fees {atEntry != null && atEntry > 0 ? 'always cover' : 'never cover'} the divergence.
               </p>
             )}
-            <p className="mt-3 text-[0.6875rem] leading-relaxed text-ink-muted">
-              The shaded band is your range. Fees only accrue inside it, which is why the
-              curve bends at both edges.
-            </p>
           </Card>
         </>
       ) : null}

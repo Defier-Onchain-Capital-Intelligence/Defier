@@ -43,6 +43,16 @@ export function RangeCalculator({ pool }: { pool: PoolDetail }) {
   const start = snap(widths, pool.presets?.[1]?.pctLow ?? 0.05);
   const [lo, setLo] = useState(start);
   const [hi, setHi] = useState(start);
+  /**
+   * How much wider than the selected range the chart looks.
+   *
+   * The axis used to span whatever the histogram covered, and on a CL2000 pool a
+   * bucket is twenty percent wide, so sixty of them cover a price range in which
+   * a ±22% band is a sliver in the middle: everything bunched, nothing legible.
+   * The view now follows the range instead, with enough margin either side to see
+   * what is just outside it, and the buttons widen or tighten that.
+   */
+  const [view, setView] = useState(1);
   const trackRef = useRef<HTMLDivElement>(null);
   const dragging = useRef<'lo' | 'hi' | null>(null);
 
@@ -59,18 +69,23 @@ export function RangeCalculator({ pool }: { pool: PoolDetail }) {
   }, [matrix, lo, hi, pool.aprGrid]);
 
   /**
-   * The horizontal axis is log price, because a tick is a constant ratio and
-   * that makes buckets evenly spaced. It spans the liquidity we can see and the
-   * range that is selected, whichever is wider — a handle dragged past the
-   * histogram must stay on screen.
+   * The horizontal axis is log price, because a tick is a constant ratio, which
+   * makes every bucket the same width on screen whatever the price level.
+   *
+   * It is centred on the current price and scaled to the selected range rather
+   * than to the liquidity, so a wide range on a coarse pool and a tight range on
+   * a fine one are both readable without touching anything.
    */
   const domain = useMemo(() => {
-    const prices = (pool.histogram || []).map((b) => b.priceAdjusted).filter((p) => p > 0);
-    const loEdge = Math.min(lowPrice, ...(prices.length ? [Math.min(...prices)] : [lowPrice]));
-    const hiEdge = Math.max(highPrice, ...(prices.length ? [Math.max(...prices)] : [highPrice]));
-    const pad = (Math.log(hiEdge) - Math.log(loEdge)) * 0.06 || 0.01;
-    return { a: Math.log(loEdge) - pad, b: Math.log(hiEdge) + pad };
-  }, [pool.histogram, lowPrice, highPrice]);
+    const centre = Math.log(pool.currentPrice);
+    const reach = Math.max(
+      Math.abs(Math.log(lowPrice) - centre),
+      Math.abs(Math.log(highPrice) - centre),
+      0.002,
+    );
+    const half = reach * 1.6 * view;
+    return { a: centre - half, b: centre + half };
+  }, [pool.currentPrice, lowPrice, highPrice, view]);
 
   const xOf = (price: number) => {
     if (!(price > 0)) return 0;
@@ -166,9 +181,19 @@ export function RangeCalculator({ pool }: { pool: PoolDetail }) {
     <Card>
       <div className="flex items-baseline justify-between gap-3">
         <Label>What a range would pay</Label>
-        <span className="text-xs tnum text-ink-muted">
-          −{pct(widths[lo] * 100, widths[lo] < 0.01 ? 2 : 1)} / +{pct(widths[hi] * 100, widths[hi] < 0.01 ? 2 : 1)}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs tnum text-ink-muted">
+            −{pct(widths[lo] * 100, widths[lo] < 0.01 ? 2 : 1)} / +{pct(widths[hi] * 100, widths[hi] < 0.01 ? 2 : 1)}
+          </span>
+          <div className="flex items-center gap-1">
+            <button type="button" aria-label="Zoom in"
+              onClick={() => setView((v) => Math.max(0.6, v / 1.5))}
+              className="h-6 w-6 rounded-md border border-bg-border text-ink-secondary hover:text-ink-primary">−</button>
+            <button type="button" aria-label="Zoom out"
+              onClick={() => setView((v) => Math.min(12, v * 1.5))}
+              className="h-6 w-6 rounded-md border border-bg-border text-ink-secondary hover:text-ink-primary">+</button>
+          </div>
+        </div>
       </div>
 
       {/* The chart and its handles. Touch and mouse take the same path. */}
@@ -180,20 +205,31 @@ export function RangeCalculator({ pool }: { pool: PoolDetail }) {
         onPointerCancel={endDrag}
         onPointerLeave={endDrag}
       >
-        <div className="absolute inset-0 flex items-end">
+        <div className="absolute inset-0">
           {(pool.histogram || []).map((b, idx) => {
+            const left = xOf(b.priceAdjusted);
+            // A bucket outside the current view is not drawn at all: clamping it
+            // to the edge would pile every far bucket into one fake bar.
+            if (left <= 0 || left >= 100) return null;
             const inSel = b.priceAdjusted >= lowPrice && b.priceAdjusted <= highPrice;
             // Square root of the share of the fullest bucket. Linear heights make
             // every bucket but one invisible on a pool with concentrated liquidity,
             // which is most of them.
             const h = maxBucket > 0 ? Math.sqrt((b.liquidityHuman || 0) / maxBucket) * 100 : 0;
+            // One bucket is one tick span, which in log price is a constant.
+            const w = ((b.tickUpper - b.tickLower) * Math.log(1.0001)) / (domain.b - domain.a) * 100;
             return (
               <div
                 key={`${b.tickLower}-${idx}`}
-                className={`flex-1 rounded-t-[2px] ${
+                className={`absolute bottom-0 rounded-t-[2px] ${
                   b.isActive ? 'bg-accent' : inSel ? 'bg-accent/45' : 'bg-ink-muted/25'
                 }`}
-                style={{ height: `${Math.max(h, 2)}%` }}
+                style={{
+                  left: `${left}%`,
+                  width: `${Math.max(w, 0.6)}%`,
+                  height: `${Math.max(h, 2)}%`,
+                  transform: 'translateX(-50%)',
+                }}
                 title={fmtPrice(b.priceAdjusted)}
               />
             );
@@ -299,11 +335,6 @@ export function RangeCalculator({ pool }: { pool: PoolDetail }) {
         </Link>
       ) : null}
 
-      <p className="mt-3 text-[0.6875rem] leading-relaxed text-ink-muted">
-        Each bound moves one tick spacing at a time, because that is the smallest step this pool can
-        hold. Computed against the liquidity actually in the pool right now and its last 24h of
-        volume — both move, so this is what the range would pay at today&rsquo;s trading.
-      </p>
     </Card>
   );
 }
