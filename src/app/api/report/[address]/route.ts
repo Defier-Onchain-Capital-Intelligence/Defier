@@ -28,7 +28,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ address: string
 
   try {
     const { data, cached, portfolio } = await getReport(address);
-    if (portfolio) after(() => recordWalletSnapshot(portfolio));
+    if (portfolio) after(() => recordWalletSnapshot(portfolio, data?.lifetime));
     return NextResponse.json(data, { headers: { 'x-defier-cache': cached ? 'hit' : 'miss' } });
   } catch (err) {
     console.error('[report] failed', { address, err });

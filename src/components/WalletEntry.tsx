@@ -4,9 +4,13 @@
  *
  * Pasting an address is the differentiator: you can analyse any wallet, including
  * one you do not control, without a wallet app or a connection prompt. Connecting
- * is there for people who expect it. The app never signs anything either way,
- * and says so, because a read only tool that behaves like one earns trust faster
- * than a banner claiming it is safe.
+ * is there for people who expect it.
+ *
+ * There used to be a paragraph here explaining that connecting is safe, that it
+ * grants no spending permission and that the app signs nothing. All true, and it
+ * was the longest text on the first screen somebody sees. A product that behaves
+ * like a read only tool demonstrates it in one click; a paragraph insisting on it
+ * mostly plants the doubt it is answering.
  */
 import { useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
@@ -66,15 +70,6 @@ export function WalletEntry({ demoWallet }: { demoWallet?: string }) {
         </button>
       ) : null}
 
-      <div className="rounded-xl border border-bg-border bg-bg-elevated p-3">
-        <p className="text-[0.6875rem] leading-relaxed text-ink-secondary">
-          <span className="text-ink-primary">Connecting is safe here, and you can skip it.</span>{' '}
-          A connection reveals your address and nothing else: no spending permission,
-          no approvals, no session. This app never asks you to sign anything, because
-          it has nothing to sign for. Pasting an address gives you exactly the same
-          result, including for wallets you do not control.
-        </p>
-      </div>
     </div>
   );
 }

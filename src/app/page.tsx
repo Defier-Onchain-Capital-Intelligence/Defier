@@ -37,9 +37,7 @@ export default async function HomePage({
           <br />is actually earning.
         </h1>
         <p className="muted mt-3 leading-relaxed">
-          Dashboards show you data. DeFier tells you the answer: whether providing
-          liquidity actually beat simply holding the same tokens, reconstructed
-          from every onchain event at the price of the day it happened.
+          Did your DeFi actually beat holding? Paste a wallet and find out.
         </p>
       </div>
 

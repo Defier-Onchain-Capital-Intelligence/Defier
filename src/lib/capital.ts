@@ -1,33 +1,53 @@
 /**
- * "Total capital analyzed": the sum of portfolio value across every wallet the
- * engine has ever reconstructed.
+ * "Total capital analysed": how much real capital has been put through the
+ * engine, summed across every wallet it has ever reconstructed.
  *
  * It is the honest traction metric for a product like this. Page views measure
- * curiosity; this measures how much real capital has been put through the
- * engine, which is the thing that would have to be true for the product to
- * matter.
+ * curiosity; this measures capital, which is the thing that would have to be
+ * true for the product to matter.
+ *
+ * It used to record the wallet's CURRENT portfolio value, and on the landing
+ * page that read as nineteen dollars across four wallets. Not a bug in the sum:
+ * a wallet whose positions are all closed holds nothing today, however much went
+ * through it. What the phrase means, and what the engine already computes, is
+ * capital DEPLOYED, valued at the price of each deposit's own day. One of those
+ * four wallets deployed nine thousand dollars.
+ *
+ * Current value is kept as the fallback for a call that has no lifetime report
+ * to hand, and the larger of the two wins so a re-analysis can only raise the
+ * figure, never quietly lower it.
  */
 import type { Portfolio } from '@/types/portfolio';
 import { getServerSupabase } from './supabase';
 
 /** Never throws and never blocks the response: a failed metric must not fail a portfolio. */
-export async function recordWalletSnapshot(portfolio: Portfolio): Promise<void> {
+export async function recordWalletSnapshot(
+  portfolio: Portfolio,
+  lifetime?: { capitalDeployedUsd?: number } | null,
+): Promise<void> {
   const supabase = getServerSupabase();
   if (!supabase) return;
 
-  const value = portfolio.summary?.totalValueUsd;
-  if (!Number.isFinite(value) || (value as number) <= 0) return;
+  const deployed = Number(lifetime?.capitalDeployedUsd);
+  const current = Number(portfolio.summary?.totalValueUsd);
+  const value = Math.max(
+    Number.isFinite(deployed) ? deployed : 0,
+    Number.isFinite(current) ? current : 0,
+  );
+  if (!(value > 0)) return;
 
   try {
     const { data: existing } = await supabase
       .from('wallet_snapshots')
-      .select('snapshots_count')
+      .select('snapshots_count, total_value_usd')
       .eq('address', portfolio.address)
       .maybeSingle();
 
     await supabase.from('wallet_snapshots').upsert({
       address: portfolio.address,
-      total_value_usd: value,
+      // Never below what this wallet has already been recorded at: the same
+      // wallet analysed twice must not make the public total go down.
+      total_value_usd: Math.max(value, Number(existing?.total_value_usd) || 0),
       positions_count: portfolio.positions?.length ?? 0,
       last_seen_at: new Date().toISOString(),
       snapshots_count: (existing?.snapshots_count ?? 0) + 1,

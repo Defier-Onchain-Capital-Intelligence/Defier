@@ -56,7 +56,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ address: string
 
   try {
     const { data, portfolio } = await getReport(address);
-    if (portfolio) after(() => recordWalletSnapshot(portfolio));
+    if (portfolio) after(() => recordWalletSnapshot(portfolio, data?.lifetime));
 
     const body = toWalletV1(address, data.lifetime, data.generatedAt, portfolio ?? peekPortfolio(address));
     return NextResponse.json(body, {

@@ -40,7 +40,7 @@ export async function POST(req: Request) {
 
   try {
     const { data, portfolio } = await getReport(address);
-    if (portfolio) after(() => recordWalletSnapshot(portfolio));
+    if (portfolio) after(() => recordWalletSnapshot(portfolio, data?.lifetime));
 
     const figures = figuresFrom(data.lifetime, address.slice(-4), data.generatedAt);
     const id = await saveCard(address, figures);
