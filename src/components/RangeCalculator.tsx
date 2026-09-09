@@ -78,14 +78,21 @@ export function RangeCalculator({ pool }: { pool: PoolDetail }) {
    */
   const domain = useMemo(() => {
     const centre = Math.log(pool.currentPrice);
+    // On a coarse pool one bucket can be wider than the whole selected range, and
+    // a chart showing a single bar is a chart showing nothing. The view is never
+    // tighter than a few buckets, so there is always something to compare against.
+    const bucket = (pool.histogram?.[0]
+      ? (pool.histogram[0].tickUpper - pool.histogram[0].tickLower) * Math.log(1.0001)
+      : 0);
     const reach = Math.max(
       Math.abs(Math.log(lowPrice) - centre),
       Math.abs(Math.log(highPrice) - centre),
+      bucket * 2.5,
       0.002,
     );
     const half = reach * 1.6 * view;
     return { a: centre - half, b: centre + half };
-  }, [pool.currentPrice, lowPrice, highPrice, view]);
+  }, [pool.currentPrice, lowPrice, highPrice, view, pool.histogram]);
 
   const xOf = (price: number) => {
     if (!(price > 0)) return 0;
@@ -199,25 +206,28 @@ export function RangeCalculator({ pool }: { pool: PoolDetail }) {
       {/* The chart and its handles. Touch and mouse take the same path. */}
       <div
         ref={trackRef}
-        className="relative mt-4 h-28 touch-none select-none"
+        className="relative mt-4 h-28 touch-none select-none overflow-hidden rounded-lg"
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
         onPointerLeave={endDrag}
       >
-        <div className="absolute inset-0">
+        <div className="absolute inset-0 overflow-hidden">
           {(pool.histogram || []).map((b, idx) => {
-            const left = xOf(b.priceAdjusted);
-            // A bucket outside the current view is not drawn at all: clamping it
-            // to the edge would pile every far bucket into one fake bar.
-            if (left <= 0 || left >= 100) return null;
+            // Both edges of the bucket, not its centre plus a width: a bucket can
+            // be wider than the whole view on a coarse pool, and a centred bar of
+            // that width spills out of the card. Edges are clamped to the view, so
+            // a bar can be cropped but never escape.
+            const halfSpan = ((b.tickUpper - b.tickLower) / 2) * Math.log(1.0001);
+            const left = xOf(b.priceAdjusted * Math.exp(-halfSpan));
+            const right = xOf(b.priceAdjusted * Math.exp(halfSpan));
+            const w = right - left;
+            if (!(w > 0)) return null;
             const inSel = b.priceAdjusted >= lowPrice && b.priceAdjusted <= highPrice;
             // Square root of the share of the fullest bucket. Linear heights make
             // every bucket but one invisible on a pool with concentrated liquidity,
             // which is most of them.
             const h = maxBucket > 0 ? Math.sqrt((b.liquidityHuman || 0) / maxBucket) * 100 : 0;
-            // One bucket is one tick span, which in log price is a constant.
-            const w = ((b.tickUpper - b.tickLower) * Math.log(1.0001)) / (domain.b - domain.a) * 100;
             return (
               <div
                 key={`${b.tickLower}-${idx}`}
@@ -228,7 +238,6 @@ export function RangeCalculator({ pool }: { pool: PoolDetail }) {
                   left: `${left}%`,
                   width: `${Math.max(w, 0.6)}%`,
                   height: `${Math.max(h, 2)}%`,
-                  transform: 'translateX(-50%)',
                 }}
                 title={fmtPrice(b.priceAdjusted)}
               />
