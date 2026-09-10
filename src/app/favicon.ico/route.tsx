@@ -1,4 +1,4 @@
-import { iconImage, TAB_BLEED } from '@/lib/iconImage';
+import { iconImage, TAB_BLEED, TAB_RADIUS } from '@/lib/iconImage';
 
 export const dynamic = 'force-static';
 
@@ -17,5 +17,5 @@ export const dynamic = 'force-static';
  * a benefit from.
  */
 export function GET() {
-  return iconImage(64, TAB_BLEED);
+  return iconImage(64, TAB_BLEED, TAB_RADIUS);
 }
