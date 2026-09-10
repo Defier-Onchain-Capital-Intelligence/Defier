@@ -20,9 +20,14 @@ import { markDataUri, BRAND } from '@/lib/brand';
  * 16 pixels, and the same margin that reads as composure at 180 reads as a
  * speck at 16. So the tab gets a tighter crop, which is a difference in the
  * rendering, not in the mark.
+ *
+ * Tighter, not edge to edge. At 0.94 the ink touched the sides and the icon
+ * read as cropped rather than as bold; a tenth of the square on either side is
+ * enough to look deliberate, and still well above the 56% the mark covered
+ * before any of this.
  */
 export const TILE_BLEED = 0.645;
-export const TAB_BLEED = 0.94;
+export const TAB_BLEED = 0.8;
 
 export function iconImage(size: number, bleed: number = TILE_BLEED) {
   // The tab crop also drops the mark's own composition margin, which is where
