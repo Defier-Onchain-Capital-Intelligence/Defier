@@ -29,6 +29,7 @@ import { ethers } from 'ethers';
 import { MULTICALL3_ADDR, MULTICALL3_ABI, ERC20_ABI } from './constants.js';
 import { getProvider, withTimeout } from './providers.js';
 import { classify } from './exposure.js';
+import { fetchTokenPricesBatch } from './prices.js';
 
 const CHAIN = 'base';
 
@@ -145,6 +146,15 @@ async function tokenMeta(provider, addresses) {
 
 /** Within 2% is the same number reported two ways; beyond it, one of them is wrong. */
 const RECONCILE_TOLERANCE = 0.02;
+
+/**
+ * Comparing two independent price sources is a looser question than comparing a
+ * protocol's own totals to its own rows. Two honest feeds disagree by a few
+ * percent on a moving asset, and dropping a real position over that would be its
+ * own kind of wrong answer. This check is looking for a denomination mistake,
+ * which is off by the price of ETH, not by basis points.
+ */
+const CROSS_PRICE_TOLERANCE = 0.08;
 function reconciles(ours, theirs) {
   if (!Number.isFinite(ours) || !Number.isFinite(theirs)) return false;
   if (theirs === 0) return Math.abs(ours) < 0.01;
@@ -343,6 +353,22 @@ async function readMoonwell(provider, wallet) {
 
 /* -------------------------------------------------------------- Compound v3 */
 
+/**
+ * Comet quotes every price in its own market's base asset, not in dollars.
+ *
+ * In the USDC market that is invisible, because the base asset is a dollar. In
+ * the WETH market it is not: getPrice returns wstETH at 1.21 and WETH at 1.00,
+ * and taken as dollars a wallet with 26.8 WETH supplied reads as twenty seven
+ * dollars. The health factor survives it, being a ratio inside one denomination,
+ * which is exactly what made this ship: the number people check was right while
+ * every dollar figure was wrong by the price of ETH.
+ *
+ * So values are converted through the base asset's own dollar price, and then
+ * each row is priced a second time from our normal price source and the two are
+ * required to agree. That second opinion is what catches this class of mistake,
+ * and it is cheap: the prices are already fetched for the rest of the portfolio.
+ */
+
 async function readComet(provider, wallet, market) {
   const { address } = market;
   const head = await multicall(provider, [
@@ -373,26 +399,58 @@ async function readComet(provider, wallet, market) {
   ]);
 
   const m = collateralAssets.length;
-  const basePrice = bnToFloat(decode(balances[2 * m], 'getPrice')?.[0], 8);
+  const baseInNumeraire = bnToFloat(decode(balances[2 * m], 'getPrice')?.[0], 8);
   const heldRaw = collateralAssets.map((_, i) => decode(balances[i], 'userCollateral')?.balance ?? null);
   const anyCollateral = heldRaw.some((b) => b && !b.isZero());
   const hasBase = (baseSupplyRaw && !baseSupplyRaw.isZero()) || (baseBorrowRaw && !baseBorrowRaw.isZero());
   if (!anyCollateral && !hasBase) return { position: null, note: null };
 
-  const meta = await tokenMeta(provider, [baseToken, ...collateralAssets.map((a) => a.asset)]);
+  const assetAddresses = [baseToken, ...collateralAssets.map((a) => a.asset)];
+  const [meta, usdPrices] = await Promise.all([
+    tokenMeta(provider, assetAddresses),
+    fetchTokenPricesBatch(assetAddresses.map((a) => ({ chain: CHAIN, address: a.toLowerCase() }))).catch(() => new Map()),
+  ]);
+  const usdOf = (addr) => usdPrices.get(`${CHAIN}:${addr.toLowerCase()}`) ?? null;
+
   const baseInfo = meta.get(baseToken.toLowerCase()) || { symbol: market.label, decimals: Number(baseDecimals), assetClass: classify(baseToken) };
   const baseRef = { address: baseToken.toLowerCase(), symbol: baseInfo.symbol, decimals: baseInfo.decimals, assetClass: baseInfo.assetClass };
+
+  // Dollars per unit of this market's numeraire.
+  const baseUsd = usdOf(baseToken);
+  if (!baseUsd || !(baseInNumeraire > 0)) {
+    return { position: null, note: `Compound v3 ${market.label} could not be priced in dollars, so it is not included.` };
+  }
+  const usdPerNumeraire = baseUsd / baseInNumeraire;
+  const basePrice = baseInNumeraire * usdPerNumeraire;
+
+  // Each row priced a second way. Disagreement means the denomination is wrong,
+  // which is the mistake this whole block exists to catch.
+  const disagreements = [];
+  const crossCheck = (addr, symbol, amountTokens, valueUsd) => {
+    const independent = usdOf(addr);
+    if (!independent || !(amountTokens > 0)) return;
+    const theirs = amountTokens * independent;
+    if (theirs < 1 && valueUsd < 1) return;      // dust: percentages are noise
+    const off = Math.abs(valueUsd - theirs) / Math.max(theirs, 1e-9);
+    if (off > CROSS_PRICE_TOLERANCE) disagreements.push(symbol);
+  };
 
   const supplied = [];
   const borrowed = [];
   let liquidationCapacityUsd = 0;
 
   const baseSupply = bnToFloat(baseSupplyRaw, baseInfo.decimals);
-  if (baseSupply > 0) supplied.push({ token: baseRef, amount: baseSupply, valueUsd: baseSupply * basePrice, isCollateral: false });
+  if (baseSupply > 0) {
+    crossCheck(baseToken, baseInfo.symbol, baseSupply, baseSupply * basePrice);
+    supplied.push({ token: baseRef, amount: baseSupply, valueUsd: baseSupply * basePrice, isCollateral: false });
+  }
 
   const baseBorrow = bnToFloat(baseBorrowRaw, baseInfo.decimals);
   const borrowUsd = baseBorrow * basePrice;
-  if (baseBorrow > 0) borrowed.push({ token: baseRef, amount: baseBorrow, valueUsd: borrowUsd });
+  if (baseBorrow > 0) {
+    crossCheck(baseToken, baseInfo.symbol, baseBorrow, borrowUsd);
+    borrowed.push({ token: baseRef, amount: baseBorrow, valueUsd: borrowUsd });
+  }
 
   collateralAssets.forEach((a, i) => {
     const raw = heldRaw[i];
@@ -400,7 +458,8 @@ async function readComet(provider, wallet, market) {
     if (!raw || raw.isZero() || !priceRaw) return;
     const info = meta.get(a.asset.toLowerCase()) || { symbol: '???', decimals: 18, assetClass: classify(a.asset) };
     const amount = bnToFloat(raw, info.decimals);
-    const valueUsd = amount * bnToFloat(priceRaw, 8);
+    const valueUsd = amount * bnToFloat(priceRaw, 8) * usdPerNumeraire;
+    crossCheck(a.asset, info.symbol, amount, valueUsd);
     supplied.push({
       token: { address: a.asset.toLowerCase(), symbol: info.symbol, decimals: info.decimals, assetClass: info.assetClass },
       amount,
@@ -420,6 +479,13 @@ async function readComet(provider, wallet, market) {
     // verdict, the ratio is wrong and stays unprinted.
     const consistent = liquidatable === true ? derived < 1 : derived >= 1;
     if (consistent) healthFactor = derived;
+  }
+
+  if (disagreements.length) {
+    return {
+      position: null,
+      note: `Compound v3 ${market.label} priced ${[...new Set(disagreements)].join(', ')} differently from our own price source, so the market is not included rather than shown with figures we cannot stand behind.`,
+    };
   }
 
   const collateralUsd = supplied.reduce((a, s) => a + s.valueUsd, 0);
