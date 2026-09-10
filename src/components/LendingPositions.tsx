@@ -97,26 +97,17 @@ export function LendingPositions({ lending, coverage, emptyBody }: {
             </div>
           </div>
 
-          {l.breakdownComplete && (l.supplied.length > 0 || l.borrowed.length > 0) ? (
+          {l.breakdownComplete && (rows(l).shown.length > 0) ? (
             <div className="mt-3 space-y-1.5 border-t border-bg-border pt-3">
-              {l.supplied.map((s) => (
-                <Row
-                  key={`s-${s.token.address}`}
-                  symbol={s.token.symbol}
-                  note={s.isCollateral ? 'Collateral' : 'Supplied'}
-                  amount={s.amount}
-                  valueUsd={s.valueUsd}
-                />
+              {rows(l).shown.map((r) => (
+                <Row key={r.key} symbol={r.symbol} note={r.note} amount={r.amount} valueUsd={r.valueUsd} />
               ))}
-              {l.borrowed.map((b) => (
-                <Row
-                  key={`b-${b.token.address}`}
-                  symbol={b.token.symbol}
-                  note="Borrowed"
-                  amount={-b.amount}
-                  valueUsd={-b.valueUsd}
-                />
-              ))}
+              {rows(l).hidden > 0 ? (
+                <p className="pt-1 text-[0.6875rem] text-ink-muted">
+                  {rows(l).hidden} {rows(l).hidden === 1 ? 'balance' : 'balances'} too small to show.
+                  {' '}They are still counted in the totals above.
+                </p>
+              ) : null}
             </div>
           ) : !l.breakdownComplete ? (
             <p className="muted mt-3 text-[0.75rem] leading-relaxed">
@@ -127,6 +118,38 @@ export function LendingPositions({ lending, coverage, emptyBody }: {
       ))}
     </div>
   );
+}
+
+/**
+ * Rows worth printing.
+ *
+ * A repaid loan often leaves a wei behind, and a row reading "0.0000 AERO =
+ * $0.00" three times over says nothing except that we are willing to print
+ * nothing. They stay inside the totals, which is where a dust balance belongs,
+ * and the count of what was left out is stated so the list is never quietly
+ * shorter than the position.
+ */
+const DUST_USD = 0.01;
+
+function rows(l: LendingPosition) {
+  const all = [
+    ...l.supplied.map((s) => ({
+      key: `s-${s.token.address}`,
+      symbol: s.token.symbol,
+      note: s.isCollateral ? 'Collateral' : 'Supplied',
+      amount: s.amount,
+      valueUsd: s.valueUsd,
+    })),
+    ...l.borrowed.map((b) => ({
+      key: `b-${b.token.address}`,
+      symbol: b.token.symbol,
+      note: 'Borrowed',
+      amount: -b.amount,
+      valueUsd: -b.valueUsd,
+    })),
+  ];
+  const shown = all.filter((r) => Math.abs(r.valueUsd) >= DUST_USD);
+  return { shown, hidden: all.length - shown.length };
 }
 
 function Row({ symbol, note, amount, valueUsd }: {
