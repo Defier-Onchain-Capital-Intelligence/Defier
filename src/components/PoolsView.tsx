@@ -48,7 +48,7 @@ export function PoolsView({ address, initialTab }: { address?: string; initialTa
   const [tab, setTab] = useState<Tab>(address ? initialTab : 'find');
 
   const options = [
-    ...(address ? [{ key: 'mine' as Tab, label: 'Mine' }] : []),
+    ...(address ? [{ key: 'mine' as Tab, label: 'My positions' }] : []),
     { key: 'find' as Tab, label: 'Pools' },
     { key: 'lending' as Tab, label: 'Lending' },
   ];

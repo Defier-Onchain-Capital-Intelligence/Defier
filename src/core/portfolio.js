@@ -25,7 +25,7 @@ import { getProvider, batchedRequests, withTimeout } from './providers.js';
 import { fetchTokenPrice } from './prices.js';
 import { getStockHoldings } from './stocks.js';
 import { getTokenHoldings } from './tokens.js';
-import { getLendingPositions } from './lending.js';
+import { getLendingPositions, LENDING_COVERAGE } from './lending.js';
 import { getAmmPositions } from './amm.js';
 
 const CHAIN = 'base';
@@ -581,8 +581,14 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
   else warnings.push('Tokenized stock balances could not be read.');
 
   const lending = lendingResult.status === 'fulfilled' ? lendingResult.value.positions : [];
+  // Which protocols were actually asked. A wallet borrowing somewhere we do not
+  // look would otherwise read as a wallet with no debt, so this travels with the
+  // figures rather than being implied by their absence.
+  const lendingCoverage = lendingResult.status === 'fulfilled'
+    ? lendingResult.value.coverage
+    : { checked: [], notCovered: LENDING_COVERAGE.notCovered, failed: LENDING_COVERAGE.checked };
   if (lendingResult.status === 'fulfilled') warnings.push(...lendingResult.value.notes);
-  else warnings.push('Aave positions could not be read.');
+  else warnings.push('Lending positions could not be read, so any borrowing is missing from this portfolio.');
 
   // A tokenized stock held directly must not also appear as a plain token.
   const stockAddresses = new Set(stocks.map((h) => h.token.address));
@@ -653,6 +659,7 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
     positions,
     tokens,
     lending,
+    lendingCoverage,
     exposure,
     holdings,
     scenarios,

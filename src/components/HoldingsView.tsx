@@ -20,11 +20,12 @@
  */
 import { useState } from 'react';
 import Link from 'next/link';
-import type { Portfolio, HoldingsBucket, HoldingLine } from '@/types/portfolio';
+import type { Portfolio, HoldingsBucket, HoldingLine, LendingCoverage } from '@/types/portfolio';
 import { usd, amount, pct } from '@/lib/format';
 import { Card, Label, Tabs, ExposureBar, Skeleton, EmptyState, StatusPill } from '@/components/ui/Primitives';
 import { InfoDot } from '@/components/ui/InfoDot';
 import { TokenLogo, TokenPair } from '@/components/ui/TokenLogo';
+import { CoverageDot } from '@/components/LendingPositions';
 import { usePortfolio } from '@/lib/usePortfolio';
 
 type Side = 'all' | 'crypto' | 'stocks';
@@ -38,6 +39,7 @@ export function HoldingsView({ address, initialTab }: { address: string; initial
 
   const { holdings } = data;
   const bucket = holdings[tab];
+  const coverage = data.lendingCoverage;
 
   return (
     <div className="space-y-4">
@@ -63,7 +65,7 @@ export function HoldingsView({ address, initialTab }: { address: string; initial
       ) : (
         <>
           <BucketHeader bucket={bucket} side={tab} />
-          <HoldingLines lines={bucket.lines} wallet={address} />
+          <HoldingLines lines={bucket.lines} wallet={address} coverage={coverage} />
           {bucket.hiddenDustCount ? (
             <p className="px-1 text-[0.6875rem] text-ink-muted">
               {bucket.hiddenDustCount} {bucket.hiddenDustCount === 1 ? 'balance' : 'balances'} too small to
@@ -139,10 +141,12 @@ function BucketHeader({ bucket, side }: { bucket: HoldingsBucket; side: Side }) 
 const VENUE_TITLE: Record<HoldingLine['venue'], string> = {
   wallet: 'In your wallet',
   lp: 'Inside liquidity positions',
-  lending: 'Lending',
+  lending: 'Supplied and borrowed',
 };
 
-function HoldingLines({ lines, wallet }: { lines: HoldingLine[]; wallet: string }) {
+function HoldingLines({ lines, wallet, coverage }: {
+  lines: HoldingLine[]; wallet: string; coverage?: LendingCoverage;
+}) {
   const venues: Array<HoldingLine['venue']> = ['wallet', 'lp', 'lending'];
 
   return (
@@ -172,7 +176,10 @@ function HoldingLines({ lines, wallet }: { lines: HoldingLine[]; wallet: string 
 
         return (
           <Card key={venue}>
-            <Label>{VENUE_TITLE[venue]}</Label>
+            <div className="flex items-center">
+              <Label>{VENUE_TITLE[venue]}</Label>
+              {venue === 'lending' ? <CoverageDot coverage={coverage} /> : null}
+            </div>
             <div className="divide-hair mt-1">
               {group.map((line) => <WalletRow key={line.key} line={line} />)}
             </div>

@@ -5,6 +5,13 @@
  * Open and Closed, not In range and Out of range. A position that has drifted out
  * of its range still holds your money and still needs attention; one that has been
  * withdrawn is history. Sorting by range would put those two in the same bucket.
+ *
+ * Lending sits under Open with the liquidity positions rather than on a screen of
+ * its own. Supplying and borrowing is the same act as providing liquidity, which
+ * is putting capital somewhere it is working and can be called back, and the two
+ * are already combined in practice: people borrow against collateral to provide
+ * liquidity with what they borrowed. Splitting them across two screens would hide
+ * that the second position is built on the first.
  */
 import { useState } from 'react';
 import type { Portfolio } from '@/types/portfolio';
@@ -12,6 +19,7 @@ import { usePortfolio } from '@/lib/usePortfolio';
 import { usd, toneOf, relativeDays } from '@/lib/format';
 import { Card, Label, Skeleton, EmptyState } from '@/components/ui/Primitives';
 import { PositionRow } from '@/components/PositionRow';
+import { LendingPositions } from '@/components/LendingPositions';
 
 type Tab = 'open' | 'closed';
 
@@ -98,7 +106,7 @@ export function PositionsList({ address, initialTab }: { address: string; initia
         </Card>
       ) : shown.length === 0 ? (
         <EmptyState
-          title={tab === 'open' ? 'Nothing deployed' : 'No history yet'}
+          title={tab === 'open' ? 'No liquidity positions' : 'No history yet'}
           body={tab === 'open'
             ? 'This wallet has no liquidity positions with capital in them right now.'
             : 'Positions appear here once they have been fully withdrawn.'}
@@ -110,6 +118,10 @@ export function PositionsList({ address, initialTab }: { address: string; initia
           </div>
         </Card>
       )}
+
+      {tab === 'open' ? (
+        <LendingPositions lending={data.lending} coverage={data.lendingCoverage} />
+      ) : null}
     </div>
   );
 }

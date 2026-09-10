@@ -13,6 +13,8 @@ import { usd, toneOf } from '@/lib/format';
 import { Card, Label, ExposureBar, Skeleton, ConfidenceNote, EmptyState } from '@/components/ui/Primitives';
 import { PositionRow } from '@/components/PositionRow';
 import { ScenarioCard } from '@/components/ScenarioCard';
+import { CoverageDot, HealthPill } from '@/components/LendingPositions';
+import { summariseDebt } from '@/lib/debt';
 import { ObservationsCard } from '@/components/ObservationsCard';
 import { WalletBadge } from '@/components/WalletBadge';
 
@@ -34,6 +36,7 @@ export function PortfolioHome({ address }: { address: string }) {
 
   const { summary, exposure, positions } = data;
   const open = positions.filter((p) => !p.closed);
+  const debt = summariseDebt(data.lending);
 
   return (
     <div className="space-y-4">
@@ -76,6 +79,48 @@ export function PortfolioHome({ address }: { address: string }) {
             </p>
           </Card>
         </Link>
+      ) : null}
+
+      {/* Debt goes above exposure, because an exposure bar that ignores an
+          obligation describes a wallet that is not this one. It only appears
+          when there is something owed: a card saying "no debt" on every
+          unleveraged wallet is noise, and the coverage dot on the lending
+          screens is where the scope of that silence is stated. */}
+      {debt.hasDebt ? (
+        <Card>
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center">
+              <Label>Borrowed against your collateral</Label>
+              <CoverageDot coverage={data.lendingCoverage} />
+            </div>
+            {debt.worstHealth != null ? (
+              <div className="text-right">
+                <p className="text-[0.6875rem] uppercase tracking-wide text-ink-muted">Health</p>
+                <HealthPill health={debt.worstHealth} />
+              </div>
+            ) : null}
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-4">
+            <div>
+              <p className="text-xs text-ink-muted">You owe</p>
+              <p className="mt-0.5 font-semibold tnum text-loss">-{usd(debt.totalDebtUsd)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-ink-muted">Backed by</p>
+              <p className="mt-0.5 font-semibold tnum">{usd(debt.totalCollateralUsd)}</p>
+            </div>
+          </div>
+
+          <p className="muted mt-3 text-[0.75rem] leading-relaxed">
+            {debt.worstHealth != null && debt.worstHealthLabel
+              ? `${debt.worstHealthLabel} is the closest to liquidation, at ${debt.worstHealth.toFixed(2)}. Liquidation starts at 1.00.`
+              : 'No health figure is stated here because our figure did not match what the protocol says about this account.'}
+            {debt.unstatedHealth.length && debt.worstHealth != null
+              ? ` ${debt.unstatedHealth.join(' and ')} could not be checked the same way, so ${debt.unstatedHealth.length === 1 ? 'it is' : 'they are'} not in this figure.`
+              : ''}
+          </p>
+        </Card>
       ) : null}
 
       {exposure.byClass.length ? (

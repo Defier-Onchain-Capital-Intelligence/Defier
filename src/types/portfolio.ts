@@ -174,14 +174,34 @@ export interface TokenHolding {
   valueUsd: number | null;
 }
 
+export type LendingProtocol = 'aave-v3' | 'moonwell' | 'compound-v3';
+
 export interface LendingPosition {
-  protocol: 'aave-v3';
+  protocol: LendingProtocol;
+  protocolLabel: string;         // "Aave v3", "Compound v3 USDC"
+  market?: string;               // Comet only: which base asset this market lends
   supplied: Array<{ token: TokenRef; amount: number; valueUsd: number; isCollateral: boolean }>;
   borrowed: Array<{ token: TokenRef; amount: number; valueUsd: number }>;
-  healthFactor: number | null;   // null when there is no debt, so the ratio is undefined
+  /**
+   * The protocol's own ratio, computed from its oracle and its collateral
+   * factors. null when there is no debt, so the ratio is undefined, and also
+   * null when our figure disagreed with what the protocol says about the
+   * account: a health factor that is close is worse than none at all.
+   */
+  healthFactor: number | null;
+  healthSource: LendingProtocol;
+  liquidationThresholdPct: number | null;
   netValueUsd: number;
-  totalCollateralUsd?: number;
-  totalDebtUsd?: number;
+  totalCollateralUsd: number;
+  totalDebtUsd: number;
+  breakdownComplete: boolean;    // false when only the protocol's totals reconciled
+}
+
+/** Which lending protocols this portfolio actually asked. */
+export interface LendingCoverage {
+  checked: string[];
+  notCovered: string[];
+  failed: string[];
 }
 
 export interface ExposureSlice {
@@ -438,6 +458,7 @@ export interface Portfolio {
   positions: LpPosition[];
   tokens: TokenHolding[];       // includes tokenized stocks (isTokenizedStock)
   lending: LendingPosition[];
+  lendingCoverage: LendingCoverage;
   exposure: Exposure;
   /** The same capital split into a crypto side and a stocks side. */
   holdings: Holdings;
