@@ -42,9 +42,31 @@ the pool — rather than "we could not read the liquidity", which is an apology 
 limits. Those are different statements and the reader needs to know which one they are
 getting.
 
+## Health factors come from the protocol, never from us
+
+A health factor decides whether someone is liquidated, so it is computed from that
+protocol's own oracle and its own collateral factors, not from our prices. Valuing the
+collateral one way and the debt another produces a number that belongs to nobody, and it
+would be wrong in the direction that matters: comfortingly high.
+
+Every figure we derive is then checked against one the protocol states itself. Aave gives
+account totals beside the per asset rows. Moonwell gives account liquidity beside the
+balances. Compound v3 says outright whether an account is liquidatable. When our figure
+and theirs disagree, neither is printed and the screen says so. A health factor that is
+close is worse than none, because it is the number people decide by.
+
+The same check caught a real error: Compound quotes prices in its own market's base
+asset, so in the WETH market a supplied balance read as dollars was wrong by the price of
+ETH. The ratio survived, being taken inside one denomination, which is exactly why every
+dollar figure had to be priced a second way before it could be shown.
+
 ## Not measured, and not claimed
 
 - **Anything outside Base.** No other chain is read, so no total is a portfolio total.
+- **Lending outside Aave v3, Moonwell and Compound v3.** Morpho in particular is not
+  read. Every screen that shows lending names what was checked and names what was not,
+  because a wallet borrowing somewhere we do not look would otherwise read as a wallet
+  with no debt, and that is a wrong answer rather than a missing one.
 - **v2-style AMM positions.** Frozen for lack of a verifiable test case rather than
   shipped as an approximation.
 - **What the wallet did next.** The trades section compares the two sides of one

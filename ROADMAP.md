@@ -33,6 +33,12 @@ a wallet.
   figure carries its scope.
 - **Base Mini App.** Manifest signed, native wallet flow inside Base App, modal on web.
 - **Alerts.** Range and position alerts with a scheduled check.
+- **Lending and borrowing.** Aave v3, Moonwell and Compound v3 read directly: what is
+  supplied, what is owed, and how close the position sits to liquidation. The health
+  factor is the protocol's own, computed from its oracle and its collateral factors,
+  and it is only printed when our figure agrees with what that protocol says about the
+  account. Debt appears on the portfolio at its worst health across protocols, not its
+  average, and counts as negative exposure everywhere else.
 
 ## Next
 
@@ -74,6 +80,15 @@ a wallet.
   milliseconds.
 - **More venues on Base**, on the same rule: a venue is added when its positions can be
   reconstructed exactly, not when its pools can be listed.
+- **Morpho.** The one lending protocol on Base we do not read. Positions there live per
+  market and there are hundreds, so finding a wallet's markets means scanning events
+  before anything can be valued, where the other three answer with a fixed number of
+  calls. Until it lands, every screen showing lending names what was checked and names
+  Morpho as not covered: a wallet borrowing somewhere we do not look would otherwise
+  read as a wallet with no debt, and that is a wrong answer rather than a missing one.
+- **Lending and liquidity as one strategy.** Borrowing against collateral to provide
+  liquidity with what you borrowed is one position, and today we show it as two. Reading
+  both sides was the prerequisite; measuring the combination against holding is the work.
 
 ## Under consideration, and what it would take
 
