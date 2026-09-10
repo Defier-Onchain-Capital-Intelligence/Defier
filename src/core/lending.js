@@ -82,6 +82,7 @@ const ABI = new ethers.utils.Interface([
   'function decimals() view returns (uint8)',
   'function numAssets() view returns (uint8)',
   'function getAssetInfo(uint8 i) view returns (tuple(uint8 offset, address asset, address priceFeed, uint64 scale, uint64 borrowCollateralFactor, uint64 liquidateCollateralFactor, uint128 supplyCap))',
+  'function getPrice(address priceFeed) view returns (uint256)',
   'function userCollateral(address account, address asset) view returns (uint128 balance, uint128 reserved)',
   'function balanceOf(address account) view returns (uint256)',
   'function borrowBalanceOf(address account) view returns (uint256)',
@@ -475,6 +476,10 @@ export async function getLendingPositions(wallet) {
   settled.forEach((r, i) => {
     if (r.status !== 'fulfilled') {
       failed.push(labels[i]);
+      // The note the reader shows says the protocol could not be read, which is
+      // true of an RPC failure and equally true of a typo in the ABI above. They
+      // are indistinguishable on screen, so the reason goes to the log.
+      console.error('[lending]', labels[i], r.reason instanceof Error ? r.reason.message : r.reason);
       notes.push(`${labels[i]} could not be read, so it is not included.`);
       return;
     }
