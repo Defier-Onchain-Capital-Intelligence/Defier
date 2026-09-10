@@ -13,6 +13,13 @@
  * moment after load it is neither connected nor finished trying, and rendering
  * "no wallet" during that moment is the same wrong answer arriving faster.
  *
+ * Use this only from a client component. It takes its child as a function, and
+ * a function cannot be sent from a server component to a client one: React
+ * serialises everything that crosses that boundary and a closure has nothing to
+ * serialise. That mistake compiles, deploys, and then throws on the request, so
+ * each screen has a thin 'use client' wrapper (AskScreen, HoldingsScreen) and
+ * the server page passes down a string.
+ *
  * This is not authentication and it does not need to be. Signing in with
  * Ethereum proves to a server that you control an address; this product reads
  * public state and has nothing to prove. Adding a signature prompt to an app
