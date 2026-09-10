@@ -49,7 +49,23 @@ export function computeExposure(positions, tokens, lending) {
 
   const entries = [...byAddress.values()];
   const totalUsd = entries.reduce((acc, e) => acc + e.usd, 0);
-  const pctOf = (usd) => (totalUsd > 0 ? (usd / totalUsd) * 100 : 0);
+
+  /**
+   * Shares are taken over gross exposure, not over the net total.
+   *
+   * Borrowing puts a negative entry in this map, and dividing by the net makes
+   * the denominator smaller than the numbers going into it: a wallet with
+   * $488k of stables against $307k of borrowed BTC came out as 270%
+   * stablecoins, -129% BTC and "-170% at market risk". Every figure there was
+   * arithmetically correct and none of them meant anything.
+   *
+   * Gross is the sum of what is at stake on either side, so a share is the
+   * fraction of the wallet's total involvement and the shorts read as negative
+   * against the same base. On a wallet with no debt this is the old number
+   * exactly, because there is nothing negative to differ over.
+   */
+  const grossUsd = entries.reduce((acc, e) => acc + Math.abs(e.usd), 0);
+  const pctOf = (usd) => (grossUsd > 0 ? (usd / grossUsd) * 100 : 0);
 
   const classTotals = new Map();
   for (const e of entries) classTotals.set(e.assetClass, (classTotals.get(e.assetClass) || 0) + e.usd);
@@ -65,9 +81,21 @@ export function computeExposure(positions, tokens, lending) {
 
   const byAsset = entries
     .map((e) => ({ symbol: e.symbol, valueUsd: e.usd, pct: pctOf(e.usd) }))
-    .sort((a, b) => b.valueUsd - a.valueUsd);
+    .sort((a, b) => Math.abs(b.valueUsd) - Math.abs(a.valueUsd));
 
-  const stablePct = pctOf(classTotals.get('STABLE') || 0);
+  // What is exposed to price, as a share of everything at stake. Stablecoin
+  // debt counts as exposure too: owing dollars is a position on dollars.
+  const stableGross = entries
+    .filter((e) => e.assetClass === 'STABLE')
+    .reduce((acc, e) => acc + Math.abs(e.usd), 0);
+  const marketGross = grossUsd - stableGross;
 
-  return { totalUsd, byClass, byAsset, marketBiasPct: 100 - stablePct };
+  return {
+    totalUsd,
+    grossUsd,
+    leveraged: entries.some((e) => e.usd < 0),
+    byClass,
+    byAsset,
+    marketBiasPct: grossUsd > 0 ? (marketGross / grossUsd) * 100 : 0,
+  };
 }

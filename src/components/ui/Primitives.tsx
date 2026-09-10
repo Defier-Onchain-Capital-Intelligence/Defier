@@ -52,31 +52,47 @@ const CLASS_COLOR: Record<string, string> = {
   STOCK: 'bg-stock', AERO: 'bg-loss', OTHER: 'bg-ink-muted',
 };
 
+/**
+ * The bar is drawn from how much of the wallet each slice is, and the legend
+ * says which way. A borrowed asset is a negative share, and a negative width
+ * cannot be drawn: clamping it to zero would drop it from the bar while the
+ * legend still named it, leaving a picture that does not add up to its own key.
+ * So width is the size of the stake and the sign is written next to it.
+ */
 export function ExposureBar({ slices }: {
   slices: Array<{ assetClass: string; label: string; pct: number }>;
 }) {
   if (!slices?.length) return null;
+  const anyBorrowed = slices.some((s) => s.pct < 0);
   return (
     <div>
       <div className="flex h-2 w-full overflow-hidden rounded-full bg-bg-elevated">
         {slices.map((s) => (
           <div
             key={s.assetClass}
-            className={CLASS_COLOR[s.assetClass] ?? CLASS_COLOR.OTHER}
-            style={{ width: `${Math.max(s.pct, 0)}%` }}
-            title={`${s.label} ${s.pct.toFixed(1)}%`}
+            className={`${CLASS_COLOR[s.assetClass] ?? CLASS_COLOR.OTHER} ${s.pct < 0 ? 'opacity-40' : ''}`}
+            style={{ width: `${Math.min(Math.abs(s.pct), 100)}%` }}
+            title={`${s.label} ${Math.abs(s.pct).toFixed(1)}%${s.pct < 0 ? ' borrowed' : ''}`}
           />
         ))}
       </div>
       <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
         {slices.map((s) => (
           <span key={s.assetClass} className="inline-flex items-center gap-1.5 text-xs text-ink-secondary">
-            <span className={`h-2 w-2 rounded-full ${CLASS_COLOR[s.assetClass] ?? CLASS_COLOR.OTHER}`} />
+            <span className={`h-2 w-2 rounded-full ${CLASS_COLOR[s.assetClass] ?? CLASS_COLOR.OTHER} ${s.pct < 0 ? 'opacity-40' : ''}`} />
             {s.label}
-            <span className="tnum text-ink-muted">{s.pct.toFixed(1)}%</span>
+            <span className="tnum text-ink-muted">
+              {Math.abs(s.pct).toFixed(1)}%{s.pct < 0 ? ' borrowed' : ''}
+            </span>
           </span>
         ))}
       </div>
+      {anyBorrowed ? (
+        <p className="mt-2 text-[0.6875rem] leading-relaxed text-ink-muted">
+          Shares are of everything at stake, supplied and borrowed together, so
+          they add up whichever way a position points.
+        </p>
+      ) : null}
     </div>
   );
 }

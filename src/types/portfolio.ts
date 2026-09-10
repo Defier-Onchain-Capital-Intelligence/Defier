@@ -213,6 +213,10 @@ export interface ExposureSlice {
 
 export interface Exposure {
   totalUsd: number;
+  /** Sum of absolute values: what is at stake on both sides, the base for every share below. */
+  grossUsd: number;
+  /** True when something here is borrowed, so the bar carries negative slices. */
+  leveraged: boolean;
   byClass: ExposureSlice[];
   byAsset: Array<{ symbol: string; valueUsd: number; pct: number }>;
   marketBiasPct: number;        // % not in stables
