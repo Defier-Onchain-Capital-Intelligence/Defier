@@ -271,6 +271,10 @@ export interface HoldingsBucket {
   walletUsd: number;
   inPoolsUsd: number;
   lendingUsd: number;
+  /** Sum of absolute values in this bucket: the base for every class share. */
+  grossUsd: number;
+  /** What is owed here. Not idle capital, and not part of the deployed share. */
+  borrowedUsd: number;
   lines: HoldingLine[];
   byClass: ExposureSlice[];
   hiddenDustCount: number;      // lines under a hundredth of a cent, counted but not listed

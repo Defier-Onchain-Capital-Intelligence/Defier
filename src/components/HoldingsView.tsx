@@ -86,8 +86,13 @@ const TITLE: Record<Side, string> = {
 };
 
 function BucketHeader({ bucket, side }: { bucket: HoldingsBucket; side: Side }) {
+  // Deployed and idle are the two things capital you own can be doing, so the
+  // share is of what you own. Borrowed money is neither: it is not idle, it is
+  // owed, and counting it here made a leveraged wallet read as 270% deployed.
+  // It gets its own line instead.
   const base = bucket.earningUsd + bucket.idleUsd;
   const earningPct = base > 0 ? (bucket.earningUsd / base) * 100 : 0;
+  const borrowed = bucket.borrowedUsd || 0;
 
   return (
     <Card>
@@ -127,6 +132,12 @@ function BucketHeader({ bucket, side }: { bucket: HoldingsBucket; side: Side }) 
               <span className="h-2 w-2 rounded-full bg-ink-muted/40" />
               Idle <span className="tnum text-ink-muted">{usd(bucket.idleUsd)}</span>
             </span>
+            {borrowed > 0 ? (
+              <span className="inline-flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-loss/60" />
+                Borrowed <span className="tnum text-loss">-{usd(borrowed)}</span>
+              </span>
+            ) : null}
           </div>
         </div>
       ) : null}

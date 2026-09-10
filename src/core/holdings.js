@@ -28,8 +28,8 @@ const DUST_USD = 0.0001;
 
 function emptyBucket() {
   return {
-    totalUsd: 0, pctOfPortfolio: 0, walletUsd: 0, inPoolsUsd: 0, lendingUsd: 0,
-    lines: [], byClass: [], hiddenDustCount: 0, earningUsd: 0, idleUsd: 0,
+    totalUsd: 0, grossUsd: 0, pctOfPortfolio: 0, walletUsd: 0, inPoolsUsd: 0, lendingUsd: 0,
+    lines: [], byClass: [], hiddenDustCount: 0, earningUsd: 0, idleUsd: 0, borrowedUsd: 0,
   };
 }
 
@@ -136,7 +136,7 @@ export function computeHoldings(positions, tokens, lending) {
         amount: s.amount ?? null,
         unit: 'tokens',
         valueUsd: s.valueUsd,
-        detail: `Supplied to ${l.protocol === 'aave-v3' ? 'Aave' : l.protocol}`,
+        detail: `Supplied to ${l.protocolLabel || l.protocol}`,
         positionId: null,
         earning: true,
         stale: false,
@@ -155,7 +155,7 @@ export function computeHoldings(positions, tokens, lending) {
         amount: b.amount != null ? -b.amount : null,
         unit: 'tokens',
         valueUsd: -b.valueUsd,          // debt is negative: you owe it back
-        detail: `Borrowed from ${l.protocol === 'aave-v3' ? 'Aave' : l.protocol}`,
+        detail: `Borrowed from ${l.protocolLabel || l.protocol}`,
         positionId: null,
         earning: false,
         stale: false,
@@ -172,7 +172,12 @@ export function computeHoldings(positions, tokens, lending) {
     if (Math.abs(line.valueUsd) < DUST_USD) bucket.hiddenDustCount += 1;
     else bucket.lines.push(line);
     bucket.totalUsd += line.valueUsd;
-    if (line.earning) bucket.earningUsd += line.valueUsd;
+    bucket.grossUsd += Math.abs(line.valueUsd);
+    // Borrowed money is not idle. It is not sitting there doing nothing, it is
+    // owed, and adding it to the idle pile made a leveraged wallet look like it
+    // had a large negative balance lying around.
+    if (line.valueUsd < 0) bucket.borrowedUsd += -line.valueUsd;
+    else if (line.earning) bucket.earningUsd += line.valueUsd;
     else bucket.idleUsd += line.valueUsd;
     if (line.venue === 'wallet') bucket.walletUsd += line.valueUsd;
     else if (line.venue === 'lp') bucket.inPoolsUsd += line.valueUsd;
@@ -193,13 +198,16 @@ export function computeHoldings(positions, tokens, lending) {
     for (const line of allOf(bucket)) {
       classTotals.set(line.assetClass, (classTotals.get(line.assetClass) || 0) + line.valueUsd);
     }
+    // Shares are of gross, not net. See computeExposure for the wallet this
+    // rule exists for: dividing by a net that debt has shrunk produces shares
+    // above 100% that are arithmetically correct and mean nothing.
     bucket.byClass = ORDER
       .filter((c) => classTotals.has(c))
       .map((c) => ({
         assetClass: c,
         label: LABELS[c],
         valueUsd: classTotals.get(c),
-        pct: bucket.totalUsd > 0 ? (classTotals.get(c) / bucket.totalUsd) * 100 : 0,
+        pct: bucket.grossUsd > 0 ? (classTotals.get(c) / bucket.grossUsd) * 100 : 0,
       }));
   }
 
@@ -215,13 +223,15 @@ export function computeHoldings(positions, tokens, lending) {
   all.lendingUsd = crypto.lendingUsd + stocks.lendingUsd;
   all.earningUsd = crypto.earningUsd + stocks.earningUsd;
   all.idleUsd = crypto.idleUsd + stocks.idleUsd;
+  all.borrowedUsd = crypto.borrowedUsd + stocks.borrowedUsd;
+  all.grossUsd = crypto.grossUsd + stocks.grossUsd;
   all.hiddenDustCount = crypto.hiddenDustCount + stocks.hiddenDustCount;
   {
     const totals = new Map();
     for (const line of lines) totals.set(line.assetClass, (totals.get(line.assetClass) || 0) + line.valueUsd);
     all.byClass = ORDER.filter((c) => totals.has(c)).map((c) => ({
       assetClass: c, label: LABELS[c], valueUsd: totals.get(c),
-      pct: grand > 0 ? (totals.get(c) / grand) * 100 : 0,
+      pct: all.grossUsd > 0 ? (totals.get(c) / all.grossUsd) * 100 : 0,
     }));
   }
 

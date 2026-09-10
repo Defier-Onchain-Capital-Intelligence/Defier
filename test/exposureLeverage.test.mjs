@@ -67,3 +67,43 @@ test('a wallet with no debt is unchanged: gross is net', () => {
   assert.equal(e.byClass.find((c) => c.assetClass === 'STABLE').pct, 25);
   assert.equal(e.marketBiasPct, 75);
 });
+
+/* -------------------------------------------------------------------------- */
+
+import { computeHoldings } from '../src/core/holdings.js';
+
+const holdingsOfLeveraged = () => computeHoldings([], [], [
+  {
+    protocol: 'aave-v3',
+    protocolLabel: 'Aave v3',
+    supplied: [{ token: token('0xusdc', 'USDC', 'STABLE'), amount: 297460, valueUsd: 297421, isCollateral: true }],
+    borrowed: [{ token: token('0xcbbtc', 'cbBTC', 'BTC'), amount: 2.4, valueUsd: 187405 }],
+  },
+  {
+    protocol: 'moonwell',
+    protocolLabel: 'Moonwell',
+    supplied: [{ token: token('0xusdc', 'USDC', 'STABLE'), amount: 190311, valueUsd: 190294, isCollateral: true }],
+    borrowed: [{ token: token('0xwell', 'WELL', 'OTHER'), amount: 4605229, valueUsd: 9445 }],
+  },
+]);
+
+test('borrowed money is not counted as idle capital', () => {
+  const { all } = holdingsOfLeveraged();
+  assert.equal(Math.round(all.borrowedUsd), 196850);
+  assert.equal(all.idleUsd, 0, 'nothing here is sitting in a wallet doing nothing');
+  const deployedShare = all.earningUsd / (all.earningUsd + all.idleUsd) * 100;
+  assert.ok(deployedShare <= 100.01, `deployed share was ${deployedShare}%`);
+});
+
+test('holdings class shares add up to the whole bucket', () => {
+  const { all } = holdingsOfLeveraged();
+  const total = all.byClass.reduce((a, c) => a + Math.abs(c.pct), 0);
+  assert.ok(Math.abs(total - 100) < 0.01, `shares summed to ${total}`);
+});
+
+test('a protocol is named the way people know it', () => {
+  const { all } = holdingsOfLeveraged();
+  const details = all.lines.map((l) => l.detail);
+  assert.ok(details.includes('Supplied to Moonwell'), 'expected Moonwell, not its slug');
+  assert.ok(details.includes('Borrowed from Aave v3'));
+});
