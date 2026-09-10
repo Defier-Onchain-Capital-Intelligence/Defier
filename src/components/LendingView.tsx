@@ -21,15 +21,20 @@ import { useLendingMarkets } from '@/lib/usePool';
 
 const PROJECT_LABEL: Record<string, string> = {
   'aave-v3': 'Aave v3',
-  moonwell: 'Moonwell',
+  'moonwell-lending': 'Moonwell',
   'morpho-blue': 'Morpho',
   'compound-v3': 'Compound v3',
 };
 
+/** All first, because it is the default: the screen opens on every market we track. */
+const PROJECTS = ['all', 'aave-v3', 'moonwell-lending', 'compound-v3', 'morpho-blue'];
+
 type Sort = 'supply' | 'borrow' | 'size';
 
 export function LendingView() {
-  const [project, setProject] = useState<string>('aave-v3');
+  // Opening on one protocol answers a question nobody asked yet. The screen
+  // starts on everything, ranked by what it pays, and narrowing is the choice.
+  const [project, setProject] = useState<string>('all');
   const [sort, setSort] = useState<Sort>('supply');
   const { data, error } = useLendingMarkets(project === 'all' ? undefined : project);
 
@@ -49,7 +54,7 @@ export function LendingView() {
     <div className="space-y-3">
       <Card>
         <FilterRow label="Protocol">
-          {['aave-v3', 'moonwell', 'morpho-blue', 'all'].map((p) => (
+          {PROJECTS.map((p) => (
             <Chip key={p} active={project === p} onClick={() => setProject(p)}>
               {p === 'all' ? 'All' : PROJECT_LABEL[p] || p}
             </Chip>

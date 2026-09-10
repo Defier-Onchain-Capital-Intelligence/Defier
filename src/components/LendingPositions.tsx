@@ -33,11 +33,6 @@ export function CoverageDot({ coverage }: { coverage?: LendingCoverage }) {
   return (
     <InfoDot label="lending coverage">
       <p>{coverageSentence(coverage)}</p>
-      <p className="mt-2">
-        Balances and health come from each protocol directly, priced by that
-        protocol&apos;s own oracle, so the health figure is the one that would
-        liquidate the position.
-      </p>
     </InfoDot>
   );
 }

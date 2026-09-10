@@ -36,7 +36,25 @@ let cache: { at: number; all: LlamaPool[] } | null = null;
 let inflight: Promise<LlamaPool[]> | null = null;
 
 const DEX = new Set(['aerodrome-slipstream', 'aerodrome-v1', 'uniswap-v3']);
-const LENDERS = new Set(['aave-v3', 'moonwell', 'morpho-blue', 'compound-v3']);
+/**
+ * The provider's slug for a protocol is not the protocol's name.
+ *
+ * Moonwell was listed here as 'moonwell' and the provider calls it
+ * 'moonwell-lending', so the filter matched nothing: the Moonwell chip returned
+ * an empty list and Moonwell was quietly absent from All as well. Nothing
+ * errored, because a filter that excludes everything looks exactly like a
+ * protocol with no markets. Whenever a name is added here, check it against a
+ * response rather than against how the protocol spells itself.
+ */
+const LENDERS = new Set(['aave-v3', 'moonwell-lending', 'morpho-blue', 'compound-v3']);
+
+/** What callers are allowed to say, mapped to what the provider calls it. */
+const PROJECT_ALIAS: Record<string, string> = {
+  moonwell: 'moonwell-lending',
+  aave: 'aave-v3',
+  compound: 'compound-v3',
+  morpho: 'morpho-blue',
+};
 
 async function load(): Promise<LlamaPool[]> {
   const res = await fetch('https://yields.llama.fi/pools', { next: { revalidate: 600 } });
@@ -100,9 +118,11 @@ async function borrowRows(): Promise<Map<string, BorrowRow>> {
 export async function getBaseLendingMarkets(project?: string): Promise<LendingMarket[]> {
   const [pools, borrow] = await Promise.all([all(), borrowRows()]);
 
+  const wanted = project ? (PROJECT_ALIAS[project] ?? project) : undefined;
+
   return pools
     .filter((p) => LENDERS.has(p.project))
-    .filter((p) => !project || p.project === project)
+    .filter((p) => !wanted || p.project === wanted)
     .filter((p) => (p.tvlUsd ?? 0) > 100_000)
     .map((p) => {
       const b = borrow.get(p.pool);
