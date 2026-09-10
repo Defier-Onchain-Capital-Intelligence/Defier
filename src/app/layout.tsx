@@ -21,6 +21,21 @@ export const metadata: Metadata = {
     title: 'DeFier',
     description: 'Did providing liquidity actually beat holding?',
   },
+  /**
+   * Without this the app had no tab icon at all. The mark was being served at
+   * /icon.png the whole time and nothing in the page ever pointed at it: those
+   * routes are plain route handlers, not Next's icon file convention, so no
+   * link tag was emitted and the browser fell back to asking for /favicon.ico,
+   * which answered 404.
+   */
+  icons: {
+    icon: [
+      { url: '/favicon.ico', sizes: '64x64', type: 'image/png' },
+      { url: '/icon.png', sizes: '1024x1024', type: 'image/png' },
+    ],
+    shortcut: '/favicon.ico',
+    apple: [{ url: '/apple-icon.png', sizes: '180x180', type: 'image/png' }],
+  },
   other: {
     // Base App reads this to render the app as an embed rather than a plain link.
     'fc:miniapp': JSON.stringify({
