@@ -21,7 +21,26 @@ export const BRAND = {
   ground: '#08090C',
 } as const;
 
-export function markSvg({ size = 512, compact = false }: { size?: number; compact?: boolean } = {}): string {
+/**
+ * The drawing's actual ink, inside the 100x100 box it is composed in.
+ *
+ * The mark sits in a square but does not fill one: it is a fork, so it spans
+ * most of the width and only about 60% of the height, and the box carries the
+ * empty margin that composition needs. A favicon does not want that margin —
+ * 16 pixels is not enough to spend any of them on air — so `tight` crops the
+ * viewBox to these bounds and lets the renderer scale the ink itself to fit.
+ *
+ * Derived from the paths below plus half the stroke width for the round caps,
+ * so they move together: change a path and change these.
+ */
+const INK_BOUNDS = {
+  compact: { x: 6, y: 20, w: 86, h: 60 },
+  full:    { x: 4, y: 18, w: 92, h: 64 },
+};
+
+export function markSvg({ size = 512, compact = false, tight = false }: {
+  size?: number; compact?: boolean; tight?: boolean;
+} = {}): string {
   const w = compact ? 16 : 12;
   const paths = compact
     ? [
@@ -35,11 +54,17 @@ export function markSvg({ size = 512, compact = false }: { size?: number; compac
         `<path d="M40 50 C 58 50, 66 66, 90 76" stroke="${BRAND.muted}"/>`,
       ];
 
-  return `<svg viewBox="0 0 100 100" width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">`
+  const b = INK_BOUNDS[compact ? 'compact' : 'full'];
+  const viewBox = tight ? `${b.x} ${b.y} ${b.w} ${b.h}` : '0 0 100 100';
+
+  // A square output around a wider-than-tall viewBox: the default meet keeps
+  // the proportions and centres what is left over, so the mark grows to the
+  // full width instead of being stretched to fill the height.
+  return `<svg viewBox="${viewBox}" width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">`
     + `<g fill="none" stroke-width="${w}" stroke-linecap="round">${paths.join('')}</g></svg>`;
 }
 
 /** Satori draws an <img>, not an inline <svg>, so the mark travels as a data URI. */
-export function markDataUri(opts?: { size?: number; compact?: boolean }): string {
+export function markDataUri(opts?: { size?: number; compact?: boolean; tight?: boolean }): string {
   return `data:image/svg+xml;base64,${Buffer.from(markSvg(opts)).toString('base64')}`;
 }

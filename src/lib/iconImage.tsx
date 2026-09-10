@@ -22,9 +22,13 @@ import { markDataUri, BRAND } from '@/lib/brand';
  * rendering, not in the mark.
  */
 export const TILE_BLEED = 0.645;
-export const TAB_BLEED = 0.86;
+export const TAB_BLEED = 0.94;
 
 export function iconImage(size: number, bleed: number = TILE_BLEED) {
+  // The tab crop also drops the mark's own composition margin, which is where
+  // most of the empty space actually was: scaling alone could not reach the
+  // edge because the drawing does not fill the box it is composed in.
+  const tight = bleed > TILE_BLEED;
   const mark = Math.round(size * bleed);
   return new ImageResponse(
     (
@@ -33,7 +37,7 @@ export function iconImage(size: number, bleed: number = TILE_BLEED) {
         alignItems: 'center', justifyContent: 'center',
         background: BRAND.ground,
       }}>
-        <img src={markDataUri({ size: mark, compact: true })} width={mark} height={mark} />
+        <img src={markDataUri({ size: mark, compact: true, tight })} width={mark} height={mark} />
       </div>
     ),
     { width: size, height: size },
