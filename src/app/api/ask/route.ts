@@ -15,6 +15,21 @@ const MAX_TURNS = 6;
 const MAX_HISTORY = 8;
 
 /**
+ * The model was told not to use em dashes and used one anyway, in an answer on
+ * screen. An instruction in a prompt is a strong preference, not a guarantee,
+ * and anything that must always hold about the output belongs in code. The
+ * dash becomes a comma when it is joining a clause and a plain hyphen when it
+ * is sitting between numbers or words.
+ */
+function house(text: string): string {
+  return text
+    .replace(/\s*[\u2014\u2013]\s*(?=[a-z(])/g, ', ')
+    .replace(/\s*[\u2014\u2013]\s*/g, ' - ')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+}
+
+/**
  * The agent answers with figures the engine produced, and with nothing else.
  *
  * Every tool below is read only and computes nothing new: they hand over what
@@ -182,7 +197,7 @@ export async function POST(req: Request) {
           .map((block) => block.text)
           .join('\n')
           .trim();
-        return NextResponse.json({ answer: text || 'I could not answer that from the data available.' });
+        return NextResponse.json({ answer: house(text) || 'I could not answer that from the data available.' });
       }
 
       messages.push({ role: 'assistant', content: response.content });
