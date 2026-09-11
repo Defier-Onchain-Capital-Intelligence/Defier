@@ -57,7 +57,8 @@ if (!url || !secret) {
   }
   const rl = createInterface({ input: stdin, output: stdout });
   if (!url) {
-    console.log('\nSupabase dashboard > Settings > Data API > Project URL');
+    console.log('\nSupabase dashboard > Settings > Data API > API URL');
+    console.log('Either form works, with or without the /rest/v1/ on the end.');
     url = (await rl.question('Project URL: ')).trim();
   }
   if (!secret) {
@@ -73,7 +74,13 @@ if (!url || !secret) {
   process.exit(1);
 }
 
-const base = url.replace(/\/$/, '');
+/**
+ * The dashboard shows this as https://<ref>.supabase.co/rest/v1/ and the paths
+ * below add /rest/v1 themselves, so pasting exactly what is on screen would ask
+ * for /rest/v1/rest/v1/wallet_snapshots and get a 404 that explains nothing.
+ * Accept either form rather than making somebody know that.
+ */
+const base = url.trim().replace(/\/+$/, '').replace(/\/rest\/v1$/, '');
 const headers = {
   apikey: secret,
   authorization: `Bearer ${secret}`,
