@@ -76,6 +76,14 @@ test('the provider records which endpoints answered', () => {
     'a provider cached at cold start must be droppable when it starts refusing');
 });
 
+test('the provider cache expires, so an outage can heal without a redeploy', () => {
+  const src = read('../src/core/providers.js');
+  assert.ok(/PROVIDER_TTL_MS/.test(src), 'a probe verdict kept for the life of the instance cannot recover');
+  const body = src.slice(src.indexOf('export async function getProvider'), src.indexOf('const settled'));
+  assert.ok(/invalidateProvider\(chain\)/.test(body) || /fresh/.test(body),
+    'getProvider must re-probe once the verdict is stale');
+});
+
 test('a redacted RPC url never carries the key', () => {
   const src = read('../src/core/providers.js');
   assert.ok(/export function redactRpcUrl/.test(src), 'redactRpcUrl must exist');

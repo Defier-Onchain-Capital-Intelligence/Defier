@@ -89,8 +89,22 @@ export function redactRpcUrl(url) {
  * Probes all RPCs in parallel and keeps all healthy ones.
  * First call takes ~3-6s; subsequent calls return instantly from cache.
  */
+/**
+ * How long a probe result is trusted before the endpoints are re-checked.
+ *
+ * The cache used to have no expiry at all. A serverless instance that probed
+ * once at cold start kept that verdict for its whole life, so an endpoint that
+ * died an hour into the instance stayed in the set and an endpoint that came
+ * back never returned to it. Five minutes is short enough that an outage heals
+ * on its own and long enough that the probe is not part of the cost of a
+ * request.
+ */
+const PROVIDER_TTL_MS = 5 * 60 * 1000;
+
 export async function getProvider(chain) {
-  if (_providerCache[chain]) return _providerCache[chain];
+  const fresh = _providerHealth[chain] && Date.now() - _providerHealth[chain].at < PROVIDER_TTL_MS;
+  if (_providerCache[chain] && fresh) return _providerCache[chain];
+  if (_providerCache[chain] && !fresh) invalidateProvider(chain);
 
   const rpcs = CHAIN_RPCS_LIST[chain];
   if (!rpcs || rpcs.length === 0) {
