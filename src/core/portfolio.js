@@ -215,6 +215,16 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
   /** Only populated when the caller asks. Counts, never secrets. */
   const diag = diagnostics ? { steps: [] } : null;
   const trace = (step, value) => { if (diag) diag.steps.push({ step, value }); };
+  /**
+   * Wall clock at each phase boundary, in milliseconds from the start.
+   *
+   * The deep build stopped fitting in the route's sixty seconds and there was
+   * no way to say which phase ate them — the budget, the discovery loop and
+   * the reconstructions were all plausible and all unmeasured. Guessing which
+   * number to lower is how you lower the wrong one.
+   */
+  const t0 = Date.now();
+  const mark = (phase) => { if (diag) diag.steps.push({ step: 'phaseMs', value: { phase, ms: Date.now() - t0 } }); };
   const warnings = [];
   const provider = await getProvider(CHAIN);
   // Which endpoints answered the probe, and which did not. When a wallet comes
@@ -226,6 +236,8 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
   const held = await scanWalletPositions(wallet, { chains: [CHAIN] });
   const seen = new Set(held.map((p) => String(p.tokenId)));
   trace('heldTokenIds', [...seen]);
+
+  mark('held');
 
   // 2. Positions staked in an Aerodrome gauge. The tokens of the held positions
   //    widen the search: someone with WETH/NVDAc in hand likely staked a sibling.
@@ -263,6 +275,8 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
       warnings.push(`Staked position ${ref.tokenId} could not be read.`);
     }
   }
+
+  mark('staked');
 
   // 3. Completeness pass. Anything this wallet ever owned that neither pass found.
   let recovered = [];
@@ -317,6 +331,8 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
   } catch (_) {
     warnings.push('The completeness pass over transfer logs did not run, so an unusual pool could be missing.');
   }
+
+  mark('discovery');
 
   // 3b. Positions held through vfat.
   //
@@ -417,6 +433,8 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
     warnings.push('Positions held through vfat could not be read, so any of those are missing from this portfolio.');
   }
 
+  mark('vfat');
+
   // 4. Event history for every position found. Bounded concurrency: each one is
   //    several chunked log scans and this is the expensive part of the request.
   const candidates = [
@@ -507,6 +525,8 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
   }, 3, 100);
 
   const positions = results.filter((r) => r.status === 'fulfilled').map((r) => r.value);
+
+  mark('enrichAndHistory');
 
   // 5. Positions whose NFT was burned. Their state is gone, their events are not.
   //    Skipping them is what makes a wallet with years of history report zero fees
@@ -621,6 +641,8 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
     }
   }
 
+  mark('burnedRebuild');
+
   // 6. Aerodrome's Basic pools. No NFT, so none of the passes above can see them:
   //    being in one means holding the pool's own ERC-20. Half of Aerodrome lives
   //    here and skipping it made "every position you have ever opened" false.
@@ -682,9 +704,17 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
     );
   }
   if (historyGap.burnedMissed > 0) {
+    // "Could not be rebuilt" claims an attempt. On a shallow build there was
+    // none: the rebuild only runs when the caller asks for the deep one, which
+    // is most page loads. Saying we tried and failed, when we never tried,
+    // misdescribes our own coverage in the one sentence meant to describe it.
+    const noun = historyGap.burnedMissed === 1 ? 'position' : 'positions';
     warnings.push(
-      `${historyGap.burnedMissed} closed ${historyGap.burnedMissed === 1 ? 'position' : 'positions'} could not be rebuilt, `
-      + 'so the all time figures below cover less than this wallet has actually done.',
+      historyGap.deep
+        ? `${historyGap.burnedMissed} closed ${noun} could not be rebuilt, `
+          + 'so the all time figures below cover less than this wallet has actually done.'
+        : `${historyGap.burnedMissed} closed ${noun} are not loaded on this view, `
+          + 'so the all time figures below cover less than this wallet has actually done.',
     );
   }
   const open = positions.filter((p) => !p.closed);
@@ -857,5 +887,6 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
 
   // Observations depend on the finished object, so they come last.
   draft.observations = observe(draft);
+  mark('total');
   return draft;
 }

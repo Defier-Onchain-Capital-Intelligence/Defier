@@ -47,6 +47,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ address: string
       address,
       deep,
       rpcHealth: stepValue('rpcHealth'),
+      // Where the sixty seconds go, phase by phase. Cumulative from the start.
+      phaseMs: (p.diagnostics?.steps ?? [])
+        .filter((x) => x.step === 'phaseMs')
+        .map((x) => x.value),
       readFailures: {
         tokenBalances: stepValue('tokenBalancesFailed'),
         lending: stepValue('lendingTransportErrors'),
