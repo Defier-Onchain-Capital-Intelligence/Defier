@@ -305,8 +305,51 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
           });
         }
       }
+      // Closed vfat positions. The completeness pass above walks the NFTs this
+      // wallet ever owned, and a vfat position was never owned by the wallet —
+      // it was minted straight to the Sickle. Without this the same pass over
+      // the Sickle, a vfat user's lifetime report would quietly contain only
+      // the positions still open, while calling itself all time.
+      const vfatSources = [
+        ...AERODROME_CL_DEPLOYMENTS.map((d) => ({ protocol: 'aerodrome', nfpm: d.nfpm, factory: d.factory })),
+        { protocol: 'uniswap-v3', nfpm: NFPM_ADDRS['uniswap-v3']?.[CHAIN], factory: FACTORY_ADDRS['uniswap-v3']?.[CHAIN] },
+      ].filter((sourceItem) => sourceItem.nfpm);
+
+      const vfatEverOwned = (await Promise.all(vfatSources.map(async (sourceItem) => {
+        const owned = await getWalletTokenIdsFromLogs(sickle, sourceItem.protocol, sourceItem.nfpm).catch(() => []);
+        const list = Array.isArray(owned) ? owned : (owned?.items ?? []);
+        if (!Array.isArray(owned) && owned?.incomplete) discoveryIncomplete = true;
+        return list.map((t) => ({ ...t, protocol: sourceItem.protocol, nfpm: sourceItem.nfpm, factory: sourceItem.factory }));
+      }))).flat();
+
+      for (const item of vfatEverOwned.filter((t) => !seen.has(t.tokenId)).slice(0, 25)) {
+        seen.add(item.tokenId);
+        const proto = item.protocol || 'aerodrome';
+        const protoNfpm = item.nfpm || NFPM_ADDRS[proto]?.[CHAIN];
+        const protoFactory = item.factory || FACTORY_ADDRS[proto]?.[CHAIN];
+        try {
+          const enriched = await withTimeout(
+            _enrichPosition(CHAIN, proto, protoNfpm, protoFactory, item.tokenId, provider, proto === 'aerodrome', sickle),
+            25000,
+          );
+          if (enriched) {
+            vfatCandidates.push({
+              p: enriched, staked: false, gaugeAddress: undefined,
+              nfpm: protoNfpm, owner: sickle, via: 'vfat',
+            });
+          }
+        } catch (err) {
+          // Burned means the position was closed and destroyed. A fact about
+          // the wallet, recorded the same way as for a directly held one.
+          if (String(err?.message || err).includes('"ID"')) {
+            burned.push({ tokenId: item.tokenId, protocol: proto, nfpm: protoNfpm, owner: sickle });
+          }
+        }
+      }
+
       trace('vfatPositions', vfatCandidates.length);
-      if (sickleHeld.length === 0 && sickleStaked.length === 0) trace('sickleEmpty', true);
+      trace('vfatEverOwned', vfatEverOwned.length);
+      if (vfatCandidates.length === 0 && vfatEverOwned.length === 0) trace('sickleEmpty', true);
     }
   } catch (err) {
     trace('vfatPassFailed', String(err?.message || err).slice(0, 160));
@@ -434,8 +477,12 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
     }
 
     async function rebuildOne(item) {
+      // A burned position found through the Sickle belongs to the Sickle, and
+      // every event that proves it existed is indexed there rather than to the
+      // address the person typed in.
+      const holder = item.owner || wallet;
       const shape = await reconstructBurnedPosition({
-        protocol: item.protocol, tokenId: item.tokenId, nfpmAddr: item.nfpm, wallet,
+        protocol: item.protocol, tokenId: item.tokenId, nfpmAddr: item.nfpm, wallet: holder,
       });
       // Why a rebuild failed is the only thing that makes the next one fixable.
       if (!shape?.ok) {
@@ -445,7 +492,7 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
 
       const history = await getPositionHistory({
         protocol: item.protocol, tokenId: item.tokenId, nfpmAddr: item.nfpm,
-        gaugeAddress: shape.gaugeAddress || undefined, wallet,
+        gaugeAddress: shape.gaugeAddress || undefined, wallet: holder,
         token0: { address: shape.token0.address, decimals: shape.token0.decimals },
         token1: { address: shape.token1.address, decimals: shape.token1.decimals },
       });
@@ -483,6 +530,8 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
         staked: false,
         gaugeAddress: shape.gaugeAddress || undefined,
         nfpmAddress: item.nfpm,
+        heldVia: item.owner ? 'vfat' : 'wallet',
+        heldBy: item.owner || null,
         events: history.events,
         openedAt: history.openedAt,
         closed: true,

@@ -77,7 +77,11 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           tokenId: position.tokenId,
           nfpmAddr: position.nfpmAddress,
           gaugeAddress: position.gaugeAddress,
-          wallet,
+          // Whose address the chain has against this position. For anything
+          // held through vfat that is the user's Sickle, and scanning under
+          // the address they typed in would find no stake, no claimed rewards
+          // and no history — then compute a P&L from the nothing it found.
+          wallet: position.heldBy || wallet,
           token0: { address: position.token0.address, decimals: position.token0.decimals },
           token1: { address: position.token1.address, decimals: position.token1.decimals },
         });
