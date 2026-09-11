@@ -37,7 +37,7 @@ export function PositionRow({ position, wallet }: { position: LpPosition; wallet
             {hasStock ? <span className="ml-2 pill-stock">Stock</span> : null}
           </p>
           <p className="mt-1">
-            <StatusPill inRange={position.inRange} staked={position.staked} closed={position.closed} kind={position.kind} />
+            <StatusPill inRange={position.inRange} staked={position.staked} closed={position.closed} kind={position.kind} heldVia={position.heldVia} />
           </p>
           </div>
         </div>

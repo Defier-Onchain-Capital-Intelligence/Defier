@@ -144,6 +144,10 @@ export interface LpPosition {
   currentPrice: number;
   inRange: boolean;
   staked: boolean;              // NFT held by Aerodrome gauge
+  /** 'vfat' when the NFT belongs to the user's Sickle contract, not to their own address. */
+  heldVia: 'wallet' | 'vfat';
+  /** The contract that actually owns it, when that is not the wallet. */
+  heldBy: string | null;
   gaugeAddress?: string;
   /** Position manager holding this NFT. Base has more than one Slipstream deployment. */
   nfpmAddress?: string;

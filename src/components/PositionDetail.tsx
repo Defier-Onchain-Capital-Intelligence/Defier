@@ -52,7 +52,7 @@ export function PositionDetail({ id, wallet }: { id: string; wallet: string }) {
           ) : null}
         </div>
         <div className="mt-1.5 flex items-center gap-2">
-          <StatusPill inRange={pos.inRange} staked={pos.staked} closed={pos.closed} kind={pos.kind} />
+          <StatusPill inRange={pos.inRange} staked={pos.staked} closed={pos.closed} kind={pos.kind} heldVia={pos.heldVia} />
           {pos.token0.isTokenizedStock || pos.token1.isTokenizedStock
             ? <span className="pill-stock">Tokenized stock</span> : null}
         </div>

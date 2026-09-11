@@ -26,6 +26,7 @@ import { fetchTokenPrice } from './prices.js';
 import { getStockHoldings } from './stocks.js';
 import { getTokenHoldings } from './tokens.js';
 import { getLendingPositions, LENDING_COVERAGE } from './lending.js';
+import { resolveSickle } from './sickle.js';
 import { getAmmPositions } from './amm.js';
 
 const CHAIN = 'base';
@@ -93,6 +94,12 @@ function toLpPosition(p, extra = {}) {
     staked: extra.staked || false,
     gaugeAddress: extra.gaugeAddress,
     nfpmAddress: extra.nfpmAddress,
+    // Where the position actually sits. "vfat" means the NFT belongs to that
+    // user's Sickle contract rather than to the address they typed in, which
+    // changes nothing about the money and everything about where to look for
+    // it — so it travels with the position instead of being inferred.
+    heldVia: extra.heldVia || 'wallet',
+    heldBy: extra.heldBy || null,
     closed,
     liquidity: p.liquidity,
     currentAmounts: closed ? null : p.currentAmounts,
@@ -251,6 +258,61 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
     warnings.push('The completeness pass over transfer logs did not run, so an unusual pool could be missing.');
   }
 
+  // 3b. Positions held through vfat.
+  //
+  //     vfat gives each user a contract wallet, the Sickle, and the position
+  //     belongs to that rather than to the address the person types in. Without
+  //     this pass such a wallet reports "no liquidity positions found" while its
+  //     money is working, which is a wrong answer rather than a missing one.
+  //
+  //     Strictly additive, and wrapped whole. A wallet's own report must not get
+  //     worse because a second protocol could not be read, so every failure here
+  //     costs the vfat positions and nothing else.
+  const vfatCandidates = [];
+  let sickle = null;
+  try {
+    sickle = await resolveSickle(wallet);
+    if (sickle) {
+      trace('sickle', sickle);
+      const sickleHeld = await scanWalletPositions(sickle, { chains: [CHAIN] });
+      for (const p of sickleHeld) {
+        if (seen.has(String(p.tokenId))) continue;
+        seen.add(String(p.tokenId));
+        vfatCandidates.push({ p, staked: false, gaugeAddress: undefined, nfpm: defaultNfpm, owner: sickle, via: 'vfat' });
+      }
+
+      // The NFT is staked into the gauge by the Sickle, so it is not in the
+      // Sickle's balance either. Same search as for a wallet, one level in.
+      const sickleTokens = sickleHeld.flatMap((p) => [p.token0?.address, p.token1?.address]).filter(Boolean);
+      const sickleStaked = await getStakedTokenIds(sickle, { extraTokens: [...extraTokens, ...sickleTokens], diag })
+        .catch(() => []);
+      for (const ref of sickleStaked) {
+        if (seen.has(ref.tokenId)) continue;
+        seen.add(ref.tokenId);
+        const enriched = await withTimeout(
+          _enrichPosition(
+            CHAIN, 'aerodrome',
+            ref.nfpmAddress || defaultNfpm,
+            ref.factoryAddress || defaultFactory,
+            ref.tokenId, provider, true, sickle,
+          ),
+          25000,
+        ).catch(() => null);
+        if (enriched) {
+          vfatCandidates.push({
+            p: enriched, staked: true, gaugeAddress: ref.gaugeAddress,
+            nfpm: ref.nfpmAddress || defaultNfpm, owner: sickle, via: 'vfat',
+          });
+        }
+      }
+      trace('vfatPositions', vfatCandidates.length);
+      if (sickleHeld.length === 0 && sickleStaked.length === 0) trace('sickleEmpty', true);
+    }
+  } catch (err) {
+    trace('vfatPassFailed', String(err?.message || err).slice(0, 160));
+    warnings.push('Positions held through vfat could not be read, so any of those are missing from this portfolio.');
+  }
+
   // 4. Event history for every position found. Bounded concurrency: each one is
   //    several chunked log scans and this is the expensive part of the request.
   const candidates = [
@@ -261,6 +323,7 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
     ...recovered.map(({ enriched, ref }) => ({
       p: enriched, staked: false, gaugeAddress: ref.gaugeAddress || undefined, nfpm: ref.nfpmAddress || defaultNfpm,
     })),
+    ...vfatCandidates,
   ];
 
   // A position that was staked, paid emissions and later unstaked used to report
@@ -290,7 +353,11 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
     }
   }
 
-  const results = await batchedRequests(candidates, async ({ p, staked, gaugeAddress, nfpm }) => {
+  const results = await batchedRequests(candidates, async ({ p, staked, gaugeAddress, nfpm, owner, via }) => {
+    // Whose address the chain has against this position. For anything held
+    // through vfat that is the Sickle, and asking under the wallet's own
+    // address would find no fees, no claims and no history.
+    const holder = owner || wallet;
     // Reconstructing a position's lifetime is many log scans across millions of
     // blocks. The portfolio view answers "what do I hold and what is it worth",
     // which needs none of that, so history is opt in here and always on in the
@@ -304,7 +371,7 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
       try {
         history = await getPositionHistory({
           protocol: p.protocol, tokenId: p.tokenId, nfpmAddr: nfpm,
-          gaugeAddress, wallet,
+          gaugeAddress, wallet: holder,
           token0: { address: p.token0.address, decimals: p.token0.decimals },
           token1: { address: p.token1.address, decimals: p.token1.decimals },
         });
@@ -313,13 +380,15 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
 
     let incentivesPending = null;
     if (staked && gaugeAddress) {
-      const amount = await getPendingRewards(gaugeAddress, wallet, p.tokenId, provider).catch(() => 0);
+      const amount = await getPendingRewards(gaugeAddress, holder, p.tokenId, provider).catch(() => 0);
       const aeroPrice = await fetchTokenPrice(CHAIN, BASE_TOKENS.AERO).catch(() => null);
       incentivesPending = { amount, usd: aeroPrice ? amount * aeroPrice : 0 };
     }
 
     const position = toLpPosition(p, {
       staked, gaugeAddress, nfpmAddress: nfpm, incentivesPending,
+      heldVia: via || 'wallet',
+      heldBy: owner || null,
       events: history.events,
       openedAt: history.openedAt,
       closed: history.closed || !p.liquidity || p.liquidity === '0',

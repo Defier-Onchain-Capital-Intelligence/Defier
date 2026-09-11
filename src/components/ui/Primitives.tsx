@@ -30,12 +30,26 @@ export function MoneyStat({ label, value, signed = false, sub }: {
 }
 
 /** In range, out of range, staked, closed. Read at a glance, not read word by word. */
-export function StatusPill({ inRange, staked, closed, kind }: {
-  inRange: boolean; staked: boolean; closed: boolean; kind?: string;
+export function StatusPill({ inRange, staked, closed, kind, heldVia }: {
+  inRange: boolean; staked: boolean; closed: boolean; kind?: string; heldVia?: string;
 }) {
-  if (closed) return <span className="pill-muted">Closed</span>;
+  // The vfat label survives closure, unlike range or staking. Where a position
+  // lives is not a state it passes through: someone reading their history needs
+  // to know which of these were never in their own wallet at all.
+  const viaVfat = heldVia === 'vfat'
+    ? <span className="pill-muted">via vfat</span>
+    : null;
+  if (closed) {
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        {viaVfat}
+        <span className="pill-muted">Closed</span>
+      </span>
+    );
+  }
   return (
     <span className="inline-flex items-center gap-1.5">
+      {viaVfat}
       {staked ? <span className="pill-stock">Staked</span> : null}
       {/* A Basic pool has no range: saying "in range" would be true and
           misleading, because it implies there is one to leave. */}
