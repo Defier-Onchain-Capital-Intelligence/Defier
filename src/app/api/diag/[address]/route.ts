@@ -35,8 +35,15 @@ export async function GET(req: Request, ctx: { params: Promise<{ address: string
     ? rebuildParam
     : null;
 
+  const concParam = Number(search.get('rc'));
+  const rebuildConcurrency = Number.isInteger(concParam) && concParam >= 1 && concParam <= 12
+    ? concParam
+    : null;
+
   try {
-    const portfolio = await buildPortfolio(address, { diagnostics: true, deep, maxRebuild });
+    const portfolio = await buildPortfolio(address, {
+      diagnostics: true, deep, maxRebuild, rebuildConcurrency,
+    });
     const p = portfolio as unknown as {
       diagnostics?: { steps: Array<{ step: string; value: unknown }> };
       historyGap?: unknown;
@@ -55,6 +62,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ address: string
       address,
       deep,
       maxRebuild,
+      rebuildConcurrency,
       rpcHealth: stepValue('rpcHealth'),
       // Where the sixty seconds go, phase by phase. Cumulative from the start.
       phaseMs: (p.diagnostics?.steps ?? [])

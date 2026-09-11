@@ -208,10 +208,10 @@ function newestFirst(items) {
 
 /**
  * @param {string} address lowercase 0x address on Base
- * @param {{diagnostics?: boolean, deep?: boolean, maxRebuild?: number|null}} [options]
+ * @param {{diagnostics?: boolean, deep?: boolean, maxRebuild?: number|null, rebuildConcurrency?: number|null}} [options]
  * @returns {Promise<import('../types/portfolio').Portfolio>}
  */
-export async function buildPortfolio(address, { diagnostics = false, deep = false, maxRebuild = null } = {}) {
+export async function buildPortfolio(address, { diagnostics = false, deep = false, maxRebuild = null, rebuildConcurrency = null } = {}) {
   const wallet = address.toLowerCase();
   /** Only populated when the caller asks. Counts, never secrets. */
   const diag = diagnostics ? { steps: [] } : null;
@@ -544,6 +544,14 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
     // request that times out returns no timings at all, so the cost per
     // reconstruction can only be read from runs that finish.
     const rebuildCap = maxRebuild == null ? 20 : Math.max(0, Math.min(20, maxRebuild));
+    // 2 is what ships. The measurements say a round of two costs the same as a
+    // round of one — about sixteen seconds either way — so the limit is the
+    // latency of a single reconstruction, not contention between them, and
+    // widening the round should be close to free. "Should be" is why this is
+    // adjustable: the claim gets measured before it gets shipped.
+    const rebuildConc = rebuildConcurrency == null
+      ? 2
+      : Math.max(1, Math.min(12, rebuildConcurrency));
     const rebuilt = await batchedRequests(burned.slice(0, rebuildCap), async (item) => {
       // Everything in here is wrapped, because batchedRequests reports a thrown
       // error as a rejected promise and the loop below only reads fulfilled
@@ -559,7 +567,7 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
         });
         return null;
       }
-    }, 2, 150);
+    }, rebuildConc, 150);
 
     for (const r of rebuilt) {
       if (r.status === 'fulfilled' && r.value) { positions.push(r.value); burnedRebuilt += 1; }
