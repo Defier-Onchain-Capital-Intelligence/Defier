@@ -28,12 +28,12 @@
 --
 --   2. Convert the existing rows, from the repository:
 --
---        vercel env pull .env.local
 --        node scripts/backfill-wallet-keys.mjs
---        rm .env.local
 --
---      It reports how many it converted and refuses to claim success if any
---      failed. Safe to run twice.
+--      It needs nothing installed — no npm packages and no CLI — and asks for
+--      the project URL and secret key on the terminal, so neither lands in
+--      shell history. It reports how many it converted and refuses to claim
+--      success if any failed. Safe to run twice.
 --
 --   3. Run the rest of this file, below.
 --
