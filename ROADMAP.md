@@ -33,6 +33,12 @@ a wallet.
   figure carries its scope.
 - **Base Mini App.** Manifest signed, native wallet flow inside Base App, modal on web.
 - **Alerts.** Range and position alerts with a scheduled check.
+- **Positions held through vfat.** A wallet that farms Aerodrome through vfat
+  holds nothing itself: the position belongs to a contract wallet vfat deploys
+  for that user, so the address a person types in reads as empty. One call
+  resolves it and everything after is the pipeline we already had. Found by
+  checking a real user rather than by reasoning about it, and verified against
+  three more carrying over $1.5M that had all been reading as zero.
 - **Lending and borrowing.** Aave v3, Moonwell and Compound v3 read directly: what is
   supplied, what is owed, and how close the position sits to liquidation. The health
   factor is the protocol's own, computed from its oracle and its collateral factors,
@@ -49,35 +55,23 @@ a wallet.
   Monthly keys for people and integrations. [x402](https://www.coinbase.com/developer-platform/discover/launches/x402)
   per call for agents, which is Coinbase's own standard, settles in USDC on Base, and
   needs no account.
-- **Positions held through vfat.** A wallet that farms Aerodrome through
-  [vfat.io](https://vfat.io) looks empty to us, and that is a real hole rather
-  than an edge case: vfat deploys a smart contract wallet per user, called a
-  Sickle, and the positions belong to the Sickle. The user still owns it, and
-  DeBank and Rabby already show these, so a portfolio that quietly omits them is
-  wrong rather than incomplete.
-
-  The mechanism makes this small. `SickleFactory.sickles(owner)` returns a
-  user's Sickle in one call, and deployment is a deterministic clone salted with
-  `keccak256(abi.encode(owner))`, so the address is derivable before it exists.
-  One extra read per wallet, and every position that comes back goes through the
-  same reconstruction as any other. Two things to get right: the factory keeps a
-  pointer to its predecessor and falls back to it, which is the same trap as
-  Aerodrome's two Slipstream deployments and has to be asked the same way; and
-  the result is attributed to the user's own wallet, with the Sickle named, so
-  nobody has to learn what a Sickle is to read their own P&L.
-
 - **Public documentation site.** Architecture, measurement policy and API in one place.
-- **Cost per wallet, measured.** A full reconstruction is roughly ninety seconds of work
-  and a real number of compute units. No price is set until that number is measured
-  rather than guessed.
+- **Cost per wallet, measured.** Timed on 11 Sep 2026 against production: the
+  portfolio a person actually waits for answers in about 4.4 seconds, and the
+  full history reconstruction takes about 29 more, behind the screen they are
+  already reading. The ninety seconds this entry used to claim was a guess.
+  Compute units per wallet are still unmeasured, and no price is set until they
+  are.
 
 ## Later
 
 - **v2 style AMM positions.** Deliberately frozen: no approximation ships until there is
   a wallet whose result can be verified against the chain.
-- **Performance.** The deep build is around ninety seconds on a cold wallet, dominated by
-  pair lookups against the voter. Cached, the report and the curve answer in
-  milliseconds.
+- **Performance.** Measured rather than estimated, 11 Sep 2026: 4.4 seconds to the
+  portfolio someone is waiting on, and 29 seconds more for the full history, which
+  loads behind the screen they are already reading. Cached, both answer in
+  milliseconds. The 4.4 is the number worth attacking, because it is the only one
+  anybody sits through; the history was the one this entry used to be about.
 - **More venues on Base**, on the same rule: a venue is added when its positions can be
   reconstructed exactly, not when its pools can be listed.
 - **Morpho.** The one lending protocol on Base we do not read. Positions there live per
