@@ -151,6 +151,62 @@ export function dedupeClaimEvents(positions) {
 }
 
 /**
+ * How many positions the completeness pass will rebuild in one request.
+ *
+ * Not a number of positions someone owns — a budget. Each one costs an
+ * enrichment and, on a deep build, a full event reconstruction: several chunked
+ * log scans across millions of blocks. The route has sixty seconds. Twenty five
+ * is what fits.
+ *
+ * When it binds, the report says so: positionsNotReconstructed carries the
+ * count and coverage.complete goes false, so the wallet never claims an all
+ * time figure it did not measure.
+ */
+const RECONSTRUCTION_BUDGET = 25;
+
+/**
+ * Newest first, per venue, before the budget is applied.
+ *
+ * Discovery returns oldest first — Alchemy's transfer history is ascending and
+ * the log fallback scans forward from the deploy block — so slicing it took a
+ * heavy wallet's twenty five OLDEST positions and dropped everything recent.
+ * That is the wrong twenty five: the recent ones are the ones somebody opened
+ * this month and came here to look at.
+ *
+ * tokenIds are minted in sequence, so a higher id is a later position, but only
+ * within one position manager. Sorting them all together would let whichever
+ * contract issues the largest numbers crowd the others out, so each venue is
+ * sorted on its own and they are taken in turn.
+ */
+function newestFirst(items) {
+  const byVenue = new Map();
+  for (const item of items) {
+    const key = String(item.nfpm || item.protocol || '').toLowerCase();
+    if (!byVenue.has(key)) byVenue.set(key, []);
+    byVenue.get(key).push(item);
+  }
+  for (const list of byVenue.values()) {
+    list.sort((a, b) => {
+      try {
+        const d = BigInt(b.tokenId) - BigInt(a.tokenId);
+        return d > 0n ? 1 : d < 0n ? -1 : 0;
+      } catch (_) { return 0; }
+    });
+  }
+
+  const queues = [...byVenue.values()];
+  const out = [];
+  for (let i = 0; out.length < items.length; i += 1) {
+    let moved = false;
+    for (const q of queues) {
+      if (i < q.length) { out.push(q[i]); moved = true; }
+    }
+    if (!moved) break;
+  }
+  return out;
+}
+
+/**
  * @param {string} address lowercase 0x address on Base
  * @returns {Promise<import('../types/portfolio').Portfolio>}
  */
@@ -227,7 +283,7 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
     const everOwned = perSource.flat();
     trace('everOwned', everOwned);
     const unknown = everOwned.filter((t) => !seen.has(t.tokenId));
-    for (const item of unknown.slice(0, 25)) {
+    for (const item of newestFirst(unknown).slice(0, RECONSTRUCTION_BUDGET)) {
       seen.add(item.tokenId);
       const proto = item.protocol || 'aerodrome';
       const protoNfpm = item.nfpm || NFPM_ADDRS[proto]?.[CHAIN];
@@ -322,7 +378,8 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
         return list.map((t) => ({ ...t, protocol: sourceItem.protocol, nfpm: sourceItem.nfpm, factory: sourceItem.factory }));
       }))).flat();
 
-      for (const item of vfatEverOwned.filter((t) => !seen.has(t.tokenId)).slice(0, 25)) {
+      const vfatUnknown = vfatEverOwned.filter((t) => !seen.has(t.tokenId));
+      for (const item of newestFirst(vfatUnknown).slice(0, RECONSTRUCTION_BUDGET)) {
         seen.add(item.tokenId);
         const proto = item.protocol || 'aerodrome';
         const protoNfpm = item.nfpm || NFPM_ADDRS[proto]?.[CHAIN];
