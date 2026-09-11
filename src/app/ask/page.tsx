@@ -1,6 +1,15 @@
+import type { Metadata } from 'next';
+import { pageMeta } from '@/lib/pageMeta';
 import { Suspense } from 'react';
 import { AskScreen } from '@/components/AskScreen';
 import { Skeleton } from '@/components/ui/Primitives';
+
+
+export const metadata: Metadata = pageMeta({
+  title: 'Ask',
+  description: 'Ask about a wallet and get answers built only from figures the engine computed, never estimated.',
+  wallet: true,
+});
 
 export const dynamic = 'force-dynamic';
 

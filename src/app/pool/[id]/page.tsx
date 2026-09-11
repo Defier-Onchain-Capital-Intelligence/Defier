@@ -1,6 +1,14 @@
+import type { Metadata } from 'next';
+import { pageMeta } from '@/lib/pageMeta';
 import { Suspense } from 'react';
 import { PoolDetailView } from '@/components/PoolDetailView';
 import { Skeleton, EmptyState } from '@/components/ui/Primitives';
+
+
+export const metadata: Metadata = pageMeta({
+  title: 'Pool',
+  description: 'A Base liquidity pool: fee APR by range, depth at the current price, and what a position in it would earn.',
+});
 
 export const dynamic = 'force-dynamic';
 

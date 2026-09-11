@@ -22,7 +22,8 @@ import { useComposeCast } from '@coinbase/onchainkit/minikit';
 import type { LifetimeReport } from '@/types/portfolio';
 import { figuresFrom, shareText } from '@/lib/reportCopy';
 
-const SITE = process.env.NEXT_PUBLIC_APP_URL || 'https://defier-alpha.vercel.app';
+import { APP_URL } from '@/lib/env';
+const SITE = APP_URL;
 
 export function ShareButton({ lifetime, address }: { lifetime: LifetimeReport; address: string }) {
   const { composeCast } = useComposeCast();

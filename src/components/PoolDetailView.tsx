@@ -8,6 +8,7 @@
  * a note saying it is one day of trading annualised.
  */
 import type { PoolDetail } from '@/types/pool';
+import { Disclaimer } from '@/components/Disclaimer';
 import { usd, pct } from '@/lib/format';
 import { Card, Label, Skeleton, EmptyState, BackLink } from '@/components/ui/Primitives';
 import { InfoDot } from '@/components/ui/InfoDot';
@@ -107,9 +108,7 @@ export function PoolDetailView({ id }: { id: string }) {
 
       <RangeCalculator pool={pool} />
 
-      <p className="px-1 text-center text-[0.6875rem] leading-relaxed text-ink-muted">
-        Informational only, not investment advice. DeFier is read only and never executes transactions.
-      </p>
+      <Disclaimer />
     </div>
   );
 }

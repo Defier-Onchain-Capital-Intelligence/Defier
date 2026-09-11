@@ -1,6 +1,15 @@
+import type { Metadata } from 'next';
+import { pageMeta } from '@/lib/pageMeta';
 import { Suspense } from 'react';
 import { SimulateView } from '@/components/SimulateView';
 import { Skeleton } from '@/components/ui/Primitives';
+
+
+export const metadata: Metadata = pageMeta({
+  title: 'Simulate a position',
+  description: 'Work out what a concentrated liquidity range earns, and what it converts into as the price moves, before putting money in it.',
+  path: '/simulate',
+});
 
 export const dynamic = 'force-dynamic';
 

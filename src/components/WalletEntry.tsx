@@ -58,11 +58,16 @@ export function WalletEntry({ demoWallet }: { demoWallet?: string }) {
           autoComplete="off"
           inputMode="text"
           aria-label="Base wallet address"
+          // The error below was rendered but never announced: a screen reader
+          // heard nothing happen when the address was rejected, and the field
+          // gave no sign it was the one at fault.
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? 'wallet-error' : undefined}
         />
         <button type="submit" className="btn-primary w-full">Analyse this wallet</button>
       </form>
 
-      {error ? <p className="text-xs text-loss">{error}</p> : null}
+      {error ? <p id="wallet-error" role="alert" className="text-xs text-loss">{error}</p> : null}
 
       {demoWallet ? (
         <button type="button" className="btn-ghost w-full" onClick={() => go(demoWallet)}>

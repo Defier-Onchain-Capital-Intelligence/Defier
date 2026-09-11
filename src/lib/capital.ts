@@ -16,9 +16,15 @@
  * Current value is kept as the fallback for a call that has no lifetime report
  * to hand, and the larger of the two wins so a re-analysis can only raise the
  * figure, never quietly lower it.
+ *
+ * The address itself is not stored. This table counts wallets, sums capital and
+ * must not count the same wallet twice, and a keyed hash does all three without
+ * keeping a permanent list of addresses that includes every wallet a visitor
+ * ever pasted in to look at somebody else's.
  */
 import type { Portfolio } from '@/types/portfolio';
 import { getServerSupabase } from './supabase';
+import { walletKey } from './walletKey';
 
 /** Never throws and never blocks the response: a failed metric must not fail a portfolio. */
 export async function recordWalletSnapshot(
@@ -36,22 +42,25 @@ export async function recordWalletSnapshot(
   );
   if (!(value > 0)) return;
 
+  const key = walletKey(portfolio.address);
+  if (!key) return;
+
   try {
     const { data: existing } = await supabase
       .from('wallet_snapshots')
       .select('snapshots_count, total_value_usd')
-      .eq('address', portfolio.address)
+      .eq('wallet_key', key)
       .maybeSingle();
 
     await supabase.from('wallet_snapshots').upsert({
-      address: portfolio.address,
+      wallet_key: key,
       // Never below what this wallet has already been recorded at: the same
       // wallet analysed twice must not make the public total go down.
       total_value_usd: Math.max(value, Number(existing?.total_value_usd) || 0),
       positions_count: portfolio.positions?.length ?? 0,
       last_seen_at: new Date().toISOString(),
       snapshots_count: (existing?.snapshots_count ?? 0) + 1,
-    }, { onConflict: 'address' });
+    }, { onConflict: 'wallet_key' });
   } catch (_) {
     // The metric is not load bearing.
   }

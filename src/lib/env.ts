@@ -47,7 +47,16 @@ export function getSupabaseSecretKey(): string {
 // ─── Public by design. Assume these are printed on the home page. ─────────────
 
 export const ONCHAINKIT_API_KEY = process.env.NEXT_PUBLIC_ONCHAINKIT_API_KEY || '';
-export const APP_URL            = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+/**
+ * The site's own origin, and the one fallback when the variable is unset.
+ *
+ * Five files each carried their own fallback and two of them disagreed:
+ * three said defier-alpha.vercel.app and two said www.getdefier.com. A
+ * fallback that differs by file means a share card, a canonical URL and a
+ * notification link can each point at a different host from the same deploy.
+ */
+export const CANONICAL_URL      = 'https://www.getdefier.com';
+export const APP_URL            = process.env.NEXT_PUBLIC_APP_URL || CANONICAL_URL;
 export const SUPABASE_URL       = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 export const SUPABASE_PUBLISHABLE = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || '';
 export const DEMO_WALLET        = process.env.NEXT_PUBLIC_DEMO_WALLET || '';

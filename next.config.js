@@ -17,6 +17,40 @@ const nextConfig = {
    * API routes, build assets and anything with a file extension are left alone,
    * since Open Graph images and the manifest are fetched by absolute URL.
    */
+  /**
+   * Response headers we were not sending at all.
+   *
+   * Deliberately not a Content-Security-Policy. A strict CSP on a page that
+   * loads a wallet SDK, an injected browser extension and remote token images
+   * is a real testing exercise, and a CSP that is wrong locks people out of
+   * connecting their wallet. It is worth doing and it is worth doing with the
+   * time to verify it, not shipped blind. Everything here is safe to send
+   * today and costs nothing.
+   *
+   * Note what is absent: X-Frame-Options and frame-ancestors. This app is a
+   * Base Mini App, which means it is meant to run inside another client's
+   * iframe, and forbidding that would remove the surface it was built for.
+   */
+  async headers() {
+    return [{
+      source: '/:path*',
+      headers: [
+        // Stops a browser from second-guessing a declared content type, which
+        // is how a file that claims to be JSON ends up executed as script.
+        { key: 'X-Content-Type-Options', value: 'nosniff' },
+        // A wallet address should not travel to a third party in a Referer
+        // header. Same-origin navigations keep the full path; anything leaving
+        // the site sends the origin alone.
+        { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+        // We ask for none of these, so no embedded frame should be able to.
+        { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()' },
+        // Two years, subdomains included. The host already redirects to HTTPS;
+        // this stops the first request of a session being made in the clear.
+        { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' },
+      ],
+    }];
+  },
+
   async rewrites() {
     const onDocsHost = [{ type: 'host', value: 'docs.getdefier.com' }];
     return {

@@ -16,6 +16,7 @@ import { ScenarioCard } from '@/components/ScenarioCard';
 import { CoverageDot, HealthPill } from '@/components/LendingPositions';
 import { summariseDebt } from '@/lib/debt';
 import { ObservationsCard } from '@/components/ObservationsCard';
+import { Disclaimer } from '@/components/Disclaimer';
 import { WalletBadge } from '@/components/WalletBadge';
 
 export function PortfolioHome({ address }: { address: string }) {
@@ -187,10 +188,7 @@ export function PortfolioHome({ address }: { address: string }) {
         <ConfidenceNote confidence="partial" notes={data.warnings} />
       ) : null}
 
-      <p className="px-1 text-center text-[0.6875rem] leading-relaxed text-ink-muted">
-        Informational only, not investment advice. DeFier is read only and never executes transactions.
-        Tokenized stocks are available only to eligible users outside the United States.
-      </p>
+      <Disclaimer />
     </div>
   );
 }

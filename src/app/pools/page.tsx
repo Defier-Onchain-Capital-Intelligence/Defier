@@ -1,6 +1,15 @@
+import type { Metadata } from 'next';
+import { pageMeta } from '@/lib/pageMeta';
 import { Suspense } from 'react';
 import { PoolsView } from '@/components/PoolsView';
 import { Skeleton } from '@/components/ui/Primitives';
+
+
+export const metadata: Metadata = pageMeta({
+  title: 'Earn on Base',
+  description: "Liquidity pools and lending markets on Base, ranked by what they actually paid rather than by today's annualised headline.",
+  path: '/pools',
+});
 
 export const dynamic = 'force-dynamic';
 

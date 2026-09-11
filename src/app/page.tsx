@@ -1,4 +1,7 @@
 import { Suspense } from 'react';
+import type { Metadata } from 'next';
+import { NO_INDEX } from '@/lib/pageMeta';
+import { Disclaimer } from '@/components/Disclaimer';
 import { PortfolioHome } from '@/components/PortfolioHome';
 import { WalletEntry } from '@/components/WalletEntry';
 import { Card, Label, Skeleton } from '@/components/ui/Primitives';
@@ -7,6 +10,19 @@ import { getCapitalStats } from '@/lib/capital';
 import { usd } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * The landing page is a public page; the same URL carrying ?address= is a
+ * report about somebody's wallet. Same route, two different things, so the
+ * indexing decision has to be made per request rather than declared once.
+ */
+export async function generateMetadata({
+  searchParams,
+}: { searchParams: Promise<{ address?: string }> }): Promise<Metadata> {
+  const { address } = await searchParams;
+  if (address) return { robots: NO_INDEX };
+  return { alternates: { canonical: '/' } };
+}
 
 /**
  * Home. With an address, the portfolio. Without one, the shortest possible
@@ -66,9 +82,7 @@ export default async function HomePage({
         ))}
       </div>
 
-      <p className="px-1 text-center text-[0.6875rem] leading-relaxed text-ink-muted">
-        Base only. Read only. Informational, not investment advice.
-      </p>
+      <Disclaimer />
     </div>
   );
 }

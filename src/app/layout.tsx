@@ -3,8 +3,9 @@ import '../styles/globals.css';
 import { Providers } from '@/components/Providers';
 import { AppShell } from '@/components/AppShell';
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://defier-alpha.vercel.app';
 
+
+import { APP_URL } from '@/lib/env';
 export const metadata: Metadata = {
   metadataBase: new URL(APP_URL),
   title: 'DeFier · Know what your capital is actually earning',
@@ -59,6 +60,31 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="stylesheet" href="/onchainkit.css" />
       </head>
       <body>
+        {/* Structured data, so a crawler or an agent that never reads a line of
+            our prose still knows what this is, who made it, and that it costs
+            nothing to try. JSON-LD rather than microdata because it is one
+            block to keep correct instead of attributes scattered through the
+            markup that drift the first time the layout changes. */}
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify({
+            '@context': 'https://schema.org',
+            '@type': 'WebApplication',
+            name: 'DeFier',
+            url: APP_URL,
+            applicationCategory: 'FinanceApplication',
+            operatingSystem: 'Any',
+            description: 'Onchain capital intelligence on Base. Reconstructs every liquidity position a wallet has opened, values each amount at the price of the day it happened, and reports whether providing liquidity actually beat holding the same tokens.',
+            offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+            isAccessibleForFree: true,
+            featureList: [
+              'True profit and loss on liquidity positions, valued day by day',
+              'Liquidity versus holding the same tokens',
+              'Lending and borrowing positions with the protocol\u2019s own health factor',
+              'Tokenized stock holdings on Base',
+            ],
+          }) }}
+        />
         <Providers>
           <AppShell>{children}</AppShell>
         </Providers>

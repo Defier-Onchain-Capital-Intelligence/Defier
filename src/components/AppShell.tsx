@@ -9,8 +9,14 @@ import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { useAccount } from 'wagmi';
 
+/**
+ * Portfolio was the wrong name for the first tab. Holdings is also a portfolio,
+ * and Earn is where the positions are, so three tabs claimed the same word and
+ * none of them said what you would find. Overview says what that screen is:
+ * everything at once, before you go looking at any one part of it.
+ */
 const NAV = [
-  { href: '/',          label: 'Portfolio' },
+  { href: '/',          label: 'Overview' },
   { href: '/holdings',  label: 'Holdings' },
   { href: '/pools',     label: 'Earn' },
   { href: '/simulate',  label: 'Simulate' },
@@ -45,12 +51,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-bg-base">
-      <div className="mx-auto w-full max-w-app px-4 pb-28 pt-5">{children}</div>
+      <div className="mx-auto w-full max-w-app px-4 pb-36 pt-5">{children}</div>
 
       <nav className="fixed inset-x-0 bottom-0 border-t border-bg-border bg-bg-surface/95 backdrop-blur">
         {/* Reading the query string opts a component out of static rendering, so
             the bar is isolated behind a boundary and the pages around it are not. */}
-        <Suspense fallback={<div className="h-[52px]" />}>
+        <Suspense fallback={<div className="h-[64px]" />}>
           <NavBar />
         </Suspense>
         <div className="h-[env(safe-area-inset-bottom)]" />
@@ -70,8 +76,12 @@ function NavBar() {
   // is never built without one when one exists.
   const wallet = params.get('wallet') || params.get('address') || connected?.toLowerCase() || '';
 
+  // Bigger, and not pressed against the edge of the screen. Labels at eleven
+  // pixels with no space between them read as a caption rather than as the way
+  // around the product, and on a phone the bottom few millimetres are where the
+  // thumb rests and where the system's own home indicator sits.
   return (
-    <div className="mx-auto flex w-full max-w-app items-stretch px-2 py-2">
+    <div className="mx-auto flex w-full max-w-app items-stretch gap-1 px-3 pb-3 pt-2.5">
           {NAV.map((item) => {
             const active = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
             const key = item.href === '/' ? 'address' : 'wallet';
@@ -80,8 +90,10 @@ function NavBar() {
               <Link
                 key={item.href}
                 href={href}
-                className={`flex-1 rounded-lg py-2 text-center text-[0.6875rem] font-medium transition-colors ${
-                  active ? 'bg-bg-elevated text-ink-primary' : 'text-ink-muted hover:text-ink-secondary'
+                className={`flex-1 rounded-xl px-1 py-2.5 text-center text-[0.8125rem] leading-none tracking-tight transition-colors ${
+                  active
+                    ? 'bg-bg-elevated font-semibold text-ink-primary'
+                    : 'font-medium text-ink-secondary hover:text-ink-primary'
                 }`}
               >
                 {item.label}

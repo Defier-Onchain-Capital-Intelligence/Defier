@@ -1,6 +1,15 @@
+import type { Metadata } from 'next';
+import { pageMeta } from '@/lib/pageMeta';
 import { Suspense } from 'react';
 import { PositionDetail } from '@/components/PositionDetail';
 import { Skeleton, EmptyState } from '@/components/ui/Primitives';
+
+
+export const metadata: Metadata = pageMeta({
+  title: 'Position',
+  description: 'One liquidity position, measured from the chain.',
+  wallet: true,
+});
 
 export const dynamic = 'force-dynamic';
 

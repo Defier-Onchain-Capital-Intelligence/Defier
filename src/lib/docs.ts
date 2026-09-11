@@ -49,8 +49,35 @@ export const DOCS: DocPage[] = [
   },
 ];
 
+/**
+ * Legal lives beside the product docs but not inside them.
+ *
+ * Same mechanism, same repository, so the page and the behaviour it describes
+ * move in one commit. A separate list because a privacy policy is not
+ * documentation: it belongs at /privacy where people and crawlers look for it,
+ * not on a shelf between tick spacing and the roadmap.
+ */
+export const LEGAL: DocPage[] = [
+  {
+    slug: 'privacy',
+    file: 'PRIVACY.md',
+    title: 'Privacy',
+    blurb: 'Exactly what data touches our servers, which is very little, and what never does.',
+  },
+  {
+    slug: 'terms',
+    file: 'TERMS.md',
+    title: 'Terms',
+    blurb: 'What this tool is, what it is not, and the limits of what any figure here claims.',
+  },
+];
+
 export function docBySlug(slug: string): DocPage | undefined {
   return DOCS.find((d) => d.slug === slug);
+}
+
+export function legalBySlug(slug: string): DocPage | undefined {
+  return LEGAL.find((d) => d.slug === slug);
 }
 
 /** Markdown to HTML at build time. The source is our own repository, not user input. */

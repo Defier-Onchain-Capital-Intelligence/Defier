@@ -1,4 +1,13 @@
+import type { Metadata } from 'next';
+import { pageMeta } from '@/lib/pageMeta';
 import { redirect } from 'next/navigation';
+
+
+export const metadata: Metadata = pageMeta({
+  title: 'Tokenized stocks on Base',
+  description: 'Coinbase B20 tokenized equities on Base, and the liquidity pools that hold them.',
+  path: '/stocks',
+});
 
 /** The stocks screen became one half of Holdings. Old links keep working. */
 export const dynamic = 'force-dynamic';

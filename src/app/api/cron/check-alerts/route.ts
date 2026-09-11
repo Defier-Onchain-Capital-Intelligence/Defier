@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { runAlertPass } from '@/lib/alerts';
 
+import { APP_URL } from '@/lib/env';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
@@ -22,7 +23,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Not found.' }, { status: 404 });
   }
 
-  const appUrl = process.env.APP_URL || 'https://defier-alpha.vercel.app';
+  const appUrl = process.env.APP_URL || APP_URL;
 
   try {
     const result = await runAlertPass(appUrl.replace(/\/$/, ''));

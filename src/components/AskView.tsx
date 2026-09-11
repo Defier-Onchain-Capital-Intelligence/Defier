@@ -107,6 +107,7 @@ export function AskView({ address }: { address: string }) {
         <input
           className="input"
           placeholder="Ask about this wallet"
+          aria-label="Ask about this wallet"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           disabled={busy}

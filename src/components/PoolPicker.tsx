@@ -62,6 +62,7 @@ export function PoolPicker({ onPick }: { onPick: (pool: PoolDetail) => void }) {
         type="search"
         className="input mt-3"
         placeholder="Search a pair, e.g. WETH"
+        aria-label="Search pools by pair"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />

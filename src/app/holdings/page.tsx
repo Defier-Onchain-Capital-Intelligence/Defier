@@ -1,6 +1,15 @@
+import type { Metadata } from 'next';
+import { pageMeta } from '@/lib/pageMeta';
 import { Suspense } from 'react';
 import { HoldingsScreen } from '@/components/HoldingsScreen';
 import { Skeleton } from '@/components/ui/Primitives';
+
+
+export const metadata: Metadata = pageMeta({
+  title: 'Holdings',
+  description: 'Everything a Base wallet holds: in the wallet, inside liquidity positions, and supplied to or borrowed from lenders.',
+  wallet: true,
+});
 
 export const dynamic = 'force-dynamic';
 

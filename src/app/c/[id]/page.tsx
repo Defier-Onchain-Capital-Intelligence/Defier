@@ -6,9 +6,10 @@ import { reportHeadline } from '@/lib/reportCopy';
 import { usd, relativeDays, dateOf } from '@/lib/format';
 import { Card, Label } from '@/components/ui/Primitives';
 
+import { APP_URL } from '@/lib/env';
 export const dynamic = 'force-dynamic';
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://defier-alpha.vercel.app';
+
 
 /**
  * A shared report card.

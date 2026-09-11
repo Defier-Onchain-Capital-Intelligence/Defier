@@ -261,7 +261,14 @@ export function RangeCalculator({ pool }: { pool: PoolDetail }) {
             role="slider"
             tabIndex={0}
             aria-label={which === 'lo' ? 'Lower bound' : 'Upper bound'}
+            // A slider that reports a current value and no bounds gives a
+            // screen reader a number with nothing to place it against. The
+            // bounds are the narrowest and widest this pool's tick spacing
+            // allows, which is the real range of the control.
             aria-valuenow={Math.round((which === 'lo' ? widths[lo] : widths[hi]) * 10000) / 100}
+            aria-valuemin={Math.round(widths[0] * 10000) / 100}
+            aria-valuemax={Math.round(widths[widths.length - 1] * 10000) / 100}
+            aria-valuetext={`${(((which === 'lo' ? widths[lo] : widths[hi])) * 100).toFixed(2)} percent from the current price`}
             onPointerDown={onPointerDown(which)}
             onKeyDown={(e) => {
               const set = which === 'lo' ? setLo : setHi;

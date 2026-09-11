@@ -12,7 +12,8 @@
  *   3. Degrade, do not throw. With Supabase unconfigured every function here
  *      returns null and the share falls back to a plain link.
  */
-import { createHmac, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
+import { walletKey } from './walletKey';
 import { getServerSupabase } from './supabase';
 import type { CardFigures } from './reportCopy';
 
@@ -29,16 +30,6 @@ function shortId(): string {
   return out;
 }
 
-/**
- * A stable, non-reversible handle for an address. Uses the Supabase secret,
- * which never reaches a browser, so the digest cannot be recomputed by anyone
- * holding a list of addresses.
- */
-function walletKey(address: string): string | null {
-  const secret = process.env.SUPABASE_SECRET_KEY;
-  if (!secret) return null;
-  return createHmac('sha256', secret).update(address.toLowerCase()).digest('hex');
-}
 
 export interface StoredCard {
   id: string;
