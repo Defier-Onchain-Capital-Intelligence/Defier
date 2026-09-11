@@ -115,4 +115,4 @@ page lives in the product's own source repository, so its history is public.
 
 ## Contact
 
-Write to **hola@getdefier.com**.
+Write to **contact@getdefier.com**.

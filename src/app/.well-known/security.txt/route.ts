@@ -10,12 +10,17 @@ export const dynamic = 'force-static';
  * Expires is required by the spec and is deliberately short: a stale
  * security.txt is worse than none, because it promises an address that may no
  * longer be read. One year, renewed with the deploy that notices.
+ *
+ * One address, not a dedicated security@. A separate alias signals a team
+ * behind it, and there is no team; what matters to someone with something to
+ * report is that the address is published where they look and is read. This
+ * file is that, and it costs a line.
  */
 export function GET() {
   const base = APP_URL.replace(/\/$/, '');
   const expires = new Date(Date.UTC(2027, 8, 11)).toISOString();
 
-  const body = `Contact: mailto:security@getdefier.com
+  const body = `Contact: mailto:contact@getdefier.com
 Expires: ${expires}
 Preferred-Languages: en, es
 Canonical: ${base}/.well-known/security.txt

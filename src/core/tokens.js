@@ -11,6 +11,7 @@ import { MULTICALL3_ADDR, MULTICALL3_ABI, ERC20_ABI } from './constants.js';
 import { getProvider, withTimeout } from './providers.js';
 import { fetchTokenPricesBatch, fetchTokenPrice } from './prices.js';
 import { classify } from './exposure.js';
+import { safeSymbol } from './untrusted.js';
 
 const CHAIN = 'base';
 
@@ -57,7 +58,7 @@ export async function getTokenHoldings(wallet, extraTokens = []) {
     Promise.all(withBalance.map(async ({ address }) => {
       const token = new ethers.Contract(address, ERC20_ABI, provider);
       const [symbol, decimals] = await Promise.all([
-        withTimeout(token.symbol(), 6000).catch(() => '???'),
+        withTimeout(token.symbol(), 6000).then(safeSymbol).catch(() => '???'),
         withTimeout(token.decimals(), 6000).then(Number).catch(() => 18),
       ]);
       return { address, symbol, decimals };

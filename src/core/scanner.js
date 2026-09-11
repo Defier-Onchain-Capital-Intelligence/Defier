@@ -17,6 +17,7 @@ import { getProvider, withTimeout, batchedRequests } from './providers.js';
 import { computeV3Fees, computeV3CurrentAmounts } from './math.js';
 import { fetchTokenPrice } from './prices.js';
 
+import { safeSymbol } from './untrusted.js';
 // ─── Supported scan targets ────────────────────────────────────────────────────
 
 // Base only. Multi-chain was dropped on purpose: see 01_ANALISIS_Y_HALLAZGOS.md 3.3.
@@ -277,7 +278,7 @@ export async function getTokenInfo(provider, address) {
   try {
     const contract = new ethers.Contract(address, ERC20_ABI, provider);
     const [sym, dec] = await withTimeout(
-      Promise.all([contract.symbol(), contract.decimals()]),
+      Promise.all([contract.symbol().then(safeSymbol), contract.decimals()]),
       6000
     );
     const info = { sym: sym || '???', dec: Number(dec) };

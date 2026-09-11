@@ -24,6 +24,7 @@ import { MULTICALL3_ADDR, MULTICALL3_ABI, ERC20_ABI } from './constants.js';
 import { getProvider, withTimeout, batchedRequests } from './providers.js';
 import { fetchTokenPrice } from './prices.js';
 
+import { safeSymbol } from './untrusted.js';
 const CHAIN = 'base';
 
 async function multicall(provider, calls, chunk = 200) {
@@ -105,7 +106,7 @@ export async function getStockHoldings(wallet) {
 
     const [decimals, onchainSymbol, scaledRaw, price] = await Promise.all([
       withTimeout(token.decimals(), 6000).then(Number).catch(() => 8),
-      withTimeout(token.symbol(), 6000).catch(() => symbol),
+      withTimeout(token.symbol(), 6000).then((s) => safeSymbol(s, symbol)).catch(() => symbol),
       // scaledBalanceOf is the share equivalent. If a token does not expose it we
       // say so instead of pretending the raw balance is a share count.
       withTimeout(token.scaledBalanceOf(wallet), 6000).catch(() => null),

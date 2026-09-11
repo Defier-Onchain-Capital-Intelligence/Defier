@@ -72,4 +72,4 @@ Material changes will be reflected in the date at the top of this page.
 
 ## Contact
 
-Write to **hola@getdefier.com**.
+Write to **contact@getdefier.com**.
