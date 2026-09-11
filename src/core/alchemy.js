@@ -127,8 +127,12 @@ export async function getEverOwnedTokenIds({ contractAddress, wallet }) {
     getErc721Transfers({ contractAddress, toAddress: wallet }),
     getErc721Transfers({ contractAddress, fromAddress: wallet }),
   ]);
-  if (received === null && sent === null) return null;
-  const ids = new Set([...(received || []), ...(sent || [])].map((t) => t.tokenId));
+  // Either half failing makes the union incomplete, and an incomplete list of
+  // "every position this wallet ever held" is worse than no list: the caller
+  // treats what it gets as the whole history. It used to return the half that
+  // worked. Now a partial answer sends the caller to the log scan instead.
+  if (received === null || sent === null) return null;
+  const ids = new Set([...received, ...sent].map((t) => t.tokenId));
   return [...ids].map((tokenId) => ({ tokenId }));
 }
 

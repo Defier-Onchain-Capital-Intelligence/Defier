@@ -8,7 +8,7 @@
 import { ethers } from 'ethers';
 import { BASE_TOKENS } from './constants.base.js';
 import { MULTICALL3_ADDR, MULTICALL3_ABI, ERC20_ABI } from './constants.js';
-import { getProvider, withTimeout } from './providers.js';
+import { getProvider, withTimeout, invalidateProvider } from './providers.js';
 import { fetchTokenPricesBatch, fetchTokenPrice } from './prices.js';
 import { classify } from './exposure.js';
 import { safeSymbol } from './untrusted.js';
@@ -39,8 +39,14 @@ export async function getTokenHoldings(wallet, extraTokens = []) {
       allowFailure: true,
       callData: iface.encodeFunctionData('balanceOf', [wallet]),
     }))), 20000);
-  } catch (_) {
-    return [];
+  } catch (err) {
+    // This used to `return []`, which said "this wallet holds no tokens" when
+    // what actually happened was "we could not ask". The caller cannot tell
+    // those apart from a value, only from a thrown error, and a wallet with
+    // three hundred thousand dollars in it was being shown as $0.00 with no
+    // warning at all. Failing loudly is the whole point.
+    invalidateProvider(CHAIN);
+    throw new Error(`token balances unreadable: ${String(err?.message || err).slice(0, 160)}`);
   }
 
   const withBalance = [];

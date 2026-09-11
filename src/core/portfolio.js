@@ -21,7 +21,7 @@ import { compareStrategies } from './strategies.js';
 import { tickToPrice } from './math.js';
 import { STOCK_ADDRESSES, BASE_TOKENS, AERODROME_CL_DEPLOYMENTS } from './constants.base.js';
 import { NFPM_ADDRS, FACTORY_ADDRS } from './constants.js';
-import { getProvider, batchedRequests, withTimeout } from './providers.js';
+import { getProvider, batchedRequests, withTimeout, getProviderHealth } from './providers.js';
 import { fetchTokenPrice } from './prices.js';
 import { getStockHoldings } from './stocks.js';
 import { getTokenHoldings } from './tokens.js';
@@ -217,6 +217,10 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
   const trace = (step, value) => { if (diag) diag.steps.push({ step, value }); };
   const warnings = [];
   const provider = await getProvider(CHAIN);
+  // Which endpoints answered the probe, and which did not. When a wallet comes
+  // back empty this is the first thing worth reading: an empty wallet and an
+  // unreachable chain look identical everywhere else.
+  trace('rpcHealth', getProviderHealth(CHAIN));
 
   // 1. Positions the wallet holds directly.
   const held = await scanWalletPositions(wallet, { chains: [CHAIN] });
@@ -749,7 +753,10 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
   ]);
 
   const plainTokens = tokenResult.status === 'fulfilled' ? tokenResult.value : [];
-  if (tokenResult.status !== 'fulfilled') warnings.push('Wallet token balances could not be read.');
+  if (tokenResult.status !== 'fulfilled') {
+    warnings.push('Wallet token balances could not be read, so this total is missing whatever is sitting in the wallet.');
+    trace('tokenBalancesFailed', String(tokenResult.reason?.message || tokenResult.reason).slice(0, 200));
+  }
 
   const stocks = stockResult.status === 'fulfilled' ? stockResult.value.holdings : [];
   if (stockResult.status === 'fulfilled') warnings.push(...stockResult.value.notes);
@@ -762,7 +769,12 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
   const lendingCoverage = lendingResult.status === 'fulfilled'
     ? lendingResult.value.coverage
     : { checked: [], notCovered: LENDING_COVERAGE.notCovered, failed: LENDING_COVERAGE.checked };
-  if (lendingResult.status === 'fulfilled') warnings.push(...lendingResult.value.notes);
+  if (lendingResult.status === 'fulfilled') {
+    warnings.push(...lendingResult.value.notes);
+    if (lendingResult.value.transportErrors?.length) {
+      trace('lendingTransportErrors', lendingResult.value.transportErrors);
+    }
+  }
   else warnings.push('Lending positions could not be read, so any borrowing is missing from this portfolio.');
 
   // A tokenized stock held directly must not also appear as a plain token.

@@ -36,9 +36,21 @@ export async function GET(req: Request, ctx: { params: Promise<{ address: string
       positions?: Array<{ id: string; closed: boolean; confidence: string; notes?: string[] }>;
     };
 
+    // The steps carry rpcHealth, tokenBalancesFailed and lendingTransportErrors
+    // when those happened. They are lifted out here because the one question
+    // worth answering fast — "is the chain reachable from this deployment?" —
+    // should not require reading a hundred trace entries to find out.
+    const stepValue = (name: string) =>
+      p.diagnostics?.steps.find((x) => x.step === name)?.value ?? null;
+
     return NextResponse.json({
       address,
       deep,
+      rpcHealth: stepValue('rpcHealth'),
+      readFailures: {
+        tokenBalances: stepValue('tokenBalancesFailed'),
+        lending: stepValue('lendingTransportErrors'),
+      },
       historyGap: p.historyGap ?? null,
       steps: p.diagnostics?.steps ?? [],
       positions: (p.positions ?? []).map((x) => ({

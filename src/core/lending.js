@@ -97,7 +97,16 @@ const call = (target, fn, args = []) => ({
   callData: ABI.encodeFunctionData(fn, args),
 });
 
-/** aggregate3, tolerating per call failure. One eth_call per chunk. */
+/**
+ * aggregate3, tolerating per call failure. One eth_call per chunk.
+ *
+ * A per call failure and a whole batch failing are not the same thing. The
+ * first means the contract said no; the second means we never reached it. Both
+ * used to arrive as `success: false` and both were reported as "this protocol
+ * could not be read", which is the correct sentence for the second and a lie
+ * for neither — but it left no way to tell a dead RPC from a wallet with no
+ * position. `transportError` carries the difference out to the diagnostic.
+ */
 async function multicall(provider, calls, timeout = 20000) {
   if (calls.length === 0) return [];
   const mc = new ethers.Contract(MULTICALL3_ADDR, MULTICALL3_ABI, provider);
@@ -106,12 +115,17 @@ async function multicall(provider, calls, timeout = 20000) {
     const slice = calls.slice(i, i + 200);
     try {
       out.push(...(await withTimeout(mc.callStatic.aggregate3(slice), timeout)));
-    } catch (_) {
-      out.push(...slice.map(() => ({ success: false, returnData: '0x' })));
+    } catch (err) {
+      const message = String(err?.message || err).slice(0, 160);
+      out.push(...slice.map(() => ({ success: false, returnData: '0x', transportError: message })));
     }
   }
   return out;
 }
+
+/** The first transport error in a batch, or null when every call was answered. */
+const transportErrorOf = (results) =>
+  (results || []).find((r) => r && r.transportError)?.transportError || null;
 
 const decode = (res, fn) => {
   if (!res || !res.success) return null;
@@ -173,7 +187,14 @@ async function readAave(provider, wallet) {
   const dp = decode(head[0], 'getPoolDataProvider')?.[0];
   const oracle = decode(head[1], 'getPriceOracle')?.[0];
   const account = decode(head[2], 'getUserAccountData');
-  if (!dp || !oracle || !account) return { position: null, note: 'Aave could not be read, so it is not included.' };
+  if (!dp || !oracle || !account) {
+    return {
+      position: null,
+      note: 'Aave could not be read, so it is not included.',
+      readFailed: true,
+      transportError: transportErrorOf(head),
+    };
+  }
 
   // Aave states these in its own base currency, which is USD with 8 decimals.
   const totalCollateralUsd = bnToFloat(account.totalCollateralBase, 8);
@@ -181,7 +202,13 @@ async function readAave(provider, wallet) {
   if (totalCollateralUsd === 0 && totalDebtUsd === 0) return { position: null, note: null };
 
   const reserves = decode(await multicall(provider, [call(dp, 'getAllReservesTokens')]).then((r) => r[0]), 'getAllReservesTokens')?.[0] || [];
-  if (reserves.length === 0) return { position: null, note: 'Aave reserves could not be listed, so the position is not included.' };
+  if (reserves.length === 0) {
+    return {
+      position: null,
+      note: 'Aave reserves could not be listed, so the position is not included.',
+      readFailed: true,
+    };
+  }
 
   const assets = reserves.map((r) => r.tokenAddress);
   const res = await multicall(provider, [
@@ -253,7 +280,14 @@ async function readMoonwell(provider, wallet) {
   const assetsIn = new Set((decode(head[1], 'getAssetsIn')?.[0] || []).map((a) => a.toLowerCase()));
   const oracle = decode(head[2], 'oracle')?.[0];
   const liq = decode(head[3], 'getAccountLiquidity');
-  if (markets.length === 0 || !oracle) return { position: null, note: 'Moonwell could not be read, so it is not included.' };
+  if (markets.length === 0 || !oracle) {
+    return {
+      position: null,
+      note: 'Moonwell could not be read, so it is not included.',
+      readFailed: true,
+      transportError: transportErrorOf(head),
+    };
+  }
 
   const snaps = await multicall(provider, markets.map((m) => call(m, 'getAccountSnapshot', [wallet])));
   const active = [];
@@ -314,7 +348,11 @@ async function readMoonwell(provider, wallet) {
   });
 
   if (!readable || (supplied.length === 0 && borrowed.length === 0)) {
-    return { position: null, note: readable ? null : 'A Moonwell market could not be priced, so Moonwell is not included.' };
+    return {
+      position: null,
+      note: readable ? null : 'A Moonwell market could not be priced, so Moonwell is not included.',
+      readFailed: !readable,
+    };
   }
 
   // Moonwell states its own account liquidity. Our weighted collateral minus
@@ -387,7 +425,19 @@ async function readComet(provider, wallet, market) {
   const baseDecimals = decode(head[4], 'decimals')?.[0];
   const numAssets = decode(head[5], 'numAssets')?.[0];
   const liquidatable = decode(head[6], 'isLiquidatable')?.[0];
-  if (!baseToken || !baseFeed || baseDecimals == null || numAssets == null) return { position: null, note: null };
+  if (!baseToken || !baseFeed || baseDecimals == null || numAssets == null) {
+    // These six reads describe the MARKET, not the wallet. Every market on Base
+    // has a base token and a price feed, so failing to read them never means
+    // "no position" — it means the call did not land. Returning a silent null
+    // here is what let a total RPC failure show up on screen as a wallet with
+    // no Compound position and no warning beside it.
+    return {
+      position: null,
+      note: `Compound v3 ${market.label} could not be read, so it is not included.`,
+      readFailed: true,
+      transportError: transportErrorOf(head),
+    };
+  }
 
   const infos = await multicall(provider, Array.from({ length: Number(numAssets) }, (_, i) => call(address, 'getAssetInfo', [i])));
   const collateralAssets = infos.map((r) => decode(r, 'getAssetInfo')?.[0]).filter(Boolean);
@@ -418,7 +468,11 @@ async function readComet(provider, wallet, market) {
   // Dollars per unit of this market's numeraire.
   const baseUsd = usdOf(baseToken);
   if (!baseUsd || !(baseInNumeraire > 0)) {
-    return { position: null, note: `Compound v3 ${market.label} could not be priced in dollars, so it is not included.` };
+    return {
+      position: null,
+      note: `Compound v3 ${market.label} could not be priced in dollars, so it is not included.`,
+      readFailed: true,
+    };
   }
   const usdPerNumeraire = baseUsd / baseInNumeraire;
   const basePrice = baseInNumeraire * usdPerNumeraire;
@@ -520,11 +574,15 @@ export async function getLendingPositions(wallet) {
   let provider;
   try {
     provider = await getProvider(CHAIN);
-  } catch (_) {
+  } catch (err) {
+    // No provider means no protocol was reached. Coverage says so: nothing
+    // checked, everything failed. A reader seeing "no debt" on this request
+    // would be reading our silence, not their wallet.
     return {
       positions: [],
       notes: ['Lending positions could not be read on this request.'],
       coverage: { ...LENDING_COVERAGE, checked: [], failed: LENDING_COVERAGE.checked },
+      transportErrors: [`provider: ${String(err?.message || err).slice(0, 160)}`],
     };
   }
 
@@ -538,6 +596,8 @@ export async function getLendingPositions(wallet) {
   const positions = [];
   const notes = [];
   const failed = [];
+  /** Why a protocol could not be read, when the reason was the transport. */
+  const transportErrors = [];
 
   settled.forEach((r, i) => {
     if (r.status !== 'fulfilled') {
@@ -548,6 +608,13 @@ export async function getLendingPositions(wallet) {
       console.error('[lending]', labels[i], r.reason instanceof Error ? r.reason.message : r.reason);
       notes.push(`${labels[i]} could not be read, so it is not included.`);
       return;
+    }
+    // A protocol that answered "I could not read this" is not a protocol we
+    // checked. It used to land in `checked` anyway, so coverage told the reader
+    // we had looked at Aave on a request where Aave never answered.
+    if (r.value.readFailed) {
+      failed.push(labels[i]);
+      if (r.value.transportError) transportErrors.push(`${labels[i]}: ${r.value.transportError}`);
     }
     if (r.value.position) positions.push(r.value.position);
     if (r.value.note) notes.push(r.value.note);
@@ -568,5 +635,8 @@ export async function getLendingPositions(wallet) {
       notCovered: LENDING_COVERAGE.notCovered,
       failed: checked.length === LENDING_COVERAGE.checked.length ? [] : LENDING_COVERAGE.checked.filter((c) => !checked.includes(c)),
     },
+    // Diagnostic only. Never rendered: it carries RPC error text, which is for
+    // us, not for the reader looking at their own wallet.
+    transportErrors,
   };
 }

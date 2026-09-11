@@ -46,6 +46,45 @@ const _providerCache = {};
 const _logsProviderCache = {};
 
 /**
+ * What the last probe found, per chain. Read by /api/diag.
+ *
+ * A provider that was healthy at cold start and died an hour later used to be
+ * indistinguishable, from the outside, from a wallet that owns nothing: every
+ * call failed, every failure was swallowed, and the report said zero. This is
+ * the record that makes the difference visible.
+ */
+const _providerHealth = {};
+
+/** @returns {{at: number, healthy: string[], failed: Array<{url: string, error: string}>}|null} */
+export function getProviderHealth(chain) {
+  return _providerHealth[chain] || null;
+}
+
+/**
+ * Forget the cached provider so the next call re-probes.
+ *
+ * The cache used to live for the whole life of a serverless instance. When the
+ * probe happened to keep only one endpoint and that endpoint later started
+ * refusing requests, every subsequent call on that instance failed instantly
+ * and there was no way back short of a redeploy. Callers invalidate on a
+ * failure that looks like the transport rather than the contract.
+ */
+export function invalidateProvider(chain) {
+  delete _providerCache[chain];
+  delete _logsProviderCache[chain];
+}
+
+/** Endpoint identity without the API key. Safe to put in a diagnostic. */
+export function redactRpcUrl(url) {
+  try {
+    const u = new URL(url);
+    return `${u.host}${u.pathname.includes('/v2/') ? '/v2/***' : ''}`;
+  } catch (_) {
+    return 'unknown';
+  }
+}
+
+/**
  * Get a FallbackProvider for a chain.
  * Probes all RPCs in parallel and keeps all healthy ones.
  * First call takes ~3-6s; subsequent calls return instantly from cache.
@@ -61,17 +100,38 @@ export async function getProvider(chain) {
   const settled = await Promise.allSettled(
     rpcs.map(async (url) => {
       const p = new ethers.providers.JsonRpcProvider({ url, timeout: 10000 });
-      const block = await withTimeout(p.getBlockNumber(), 6000);
-      if (!block || typeof block !== 'number' || block < 1) {
-        throw new Error(`invalid block ${block}`);
+      try {
+        const block = await withTimeout(p.getBlockNumber(), 6000);
+        if (!block || typeof block !== 'number' || block < 1) {
+          throw new Error(`invalid block ${block}`);
+        }
+        return p;
+      } catch (err) {
+        // The URL travels with the failure, redacted. Without it the health
+        // record cannot say WHICH endpoint is down, which is the only thing
+        // worth knowing when one of them is.
+        throw new Error(`${redactRpcUrl(url)}: ${String(err?.message || err).slice(0, 120)}`);
       }
-      return p;
     })
   );
 
   const working = settled
     .filter((r) => r.status === 'fulfilled')
     .map((r) => r.value);
+
+  _providerHealth[chain] = {
+    at: Date.now(),
+    healthy: working.map((p) => redactRpcUrl(p.connection?.url || '')),
+    failed: settled
+      .filter((r) => r.status === 'rejected')
+      .map((r) => {
+        const message = String(r.reason?.message || r.reason);
+        const at = message.indexOf(': ');
+        return at > 0
+          ? { url: message.slice(0, at), error: message.slice(at + 2) }
+          : { url: 'unknown', error: message.slice(0, 120) };
+      }),
+  };
 
   if (working.length === 0) {
     throw new Error(`No working RPC for chain: ${chain}`);
