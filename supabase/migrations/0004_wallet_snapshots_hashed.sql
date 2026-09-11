@@ -16,24 +16,34 @@
 -- against these rows. report_cards has worked this way since migration 0003;
 -- this brings the usage table into line.
 --
--- BACKFILL. The hash is keyed with a secret Postgres does not have, so the
--- existing rows cannot be converted by this migration alone. Pick one before
--- running it:
+-- RUN IT IN THREE STEPS. The hash is keyed with the Supabase secret, which
+-- Postgres does not have and should not be given: pasting a secret into the
+-- SQL editor writes it into that editor's query history. So the conversion
+-- happens in a script that reads the key from the environment and never
+-- prints it.
 --
---   A. Keep the history. Run this first in the SQL editor, pasting the real
---      SUPABASE_SECRET_KEY in place of the placeholder:
+--   1. Add the column. Run this line alone, here in the SQL editor:
 --
---        create extension if not exists pgcrypto;
 --        alter table public.wallet_snapshots add column if not exists wallet_key text;
---        update public.wallet_snapshots
---           set wallet_key = encode(hmac(address, 'PASTE_SUPABASE_SECRET_KEY_HERE', 'sha256'), 'hex')
---         where wallet_key is null;
 --
---      then run the rest of this file.
+--   2. Convert the existing rows, from the repository:
 --
---   B. Start the counter over. Run this file as is; rows with no wallet_key
---      are dropped, and the public total restarts from the next wallet
---      analysed.
+--        vercel env pull .env.local
+--        node scripts/backfill-wallet-keys.mjs
+--        rm .env.local
+--
+--      It reports how many it converted and refuses to claim success if any
+--      failed. Safe to run twice.
+--
+--   3. Run the rest of this file, below.
+--
+-- Skipping step 2 is allowed and costs only history: rows without a wallet_key
+-- are deleted in step 3 and the public capital total restarts from the next
+-- wallet analysed. Nothing breaks either way.
+--
+-- Until step 3 runs, the application cannot write to this table at all — it
+-- already sends wallet_key — so the capital counter is frozen from the deploy
+-- that shipped that code until this migration lands.
 
 alter table public.wallet_snapshots add column if not exists wallet_key text;
 
