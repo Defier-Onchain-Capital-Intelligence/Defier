@@ -208,9 +208,10 @@ function newestFirst(items) {
 
 /**
  * @param {string} address lowercase 0x address on Base
+ * @param {{diagnostics?: boolean, deep?: boolean, maxRebuild?: number|null}} [options]
  * @returns {Promise<import('../types/portfolio').Portfolio>}
  */
-export async function buildPortfolio(address, { diagnostics = false, deep = false } = {}) {
+export async function buildPortfolio(address, { diagnostics = false, deep = false, maxRebuild = null } = {}) {
   const wallet = address.toLowerCase();
   /** Only populated when the caller asks. Counts, never secrets. */
   const diag = diagnostics ? { steps: [] } : null;
@@ -351,6 +352,7 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
     if (sickle) {
       trace('sickle', sickle);
       const sickleHeld = await scanWalletPositions(sickle, { chains: [CHAIN] });
+      mark('vfat.held');
       for (const p of sickleHeld) {
         if (seen.has(String(p.tokenId))) continue;
         seen.add(String(p.tokenId));
@@ -362,6 +364,7 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
       const sickleTokens = sickleHeld.flatMap((p) => [p.token0?.address, p.token1?.address]).filter(Boolean);
       const sickleStaked = await getStakedTokenIds(sickle, { extraTokens: [...extraTokens, ...sickleTokens], diag })
         .catch(() => []);
+      mark('vfat.stakedIds');
       for (const ref of sickleStaked) {
         if (seen.has(ref.tokenId)) continue;
         seen.add(ref.tokenId);
@@ -381,6 +384,7 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
           });
         }
       }
+      mark('vfat.stakedEnrich');
       // Closed vfat positions. The completeness pass above walks the NFTs this
       // wallet ever owned, and a vfat position was never owned by the wallet —
       // it was minted straight to the Sickle. Without this the same pass over
@@ -398,6 +402,7 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
         return list.map((t) => ({ ...t, protocol: sourceItem.protocol, nfpm: sourceItem.nfpm, factory: sourceItem.factory }));
       }))).flat();
 
+      mark('vfat.everOwned');
       const vfatUnknown = vfatEverOwned.filter((t) => !seen.has(t.tokenId));
       for (const item of newestFirst(vfatUnknown).slice(0, RECONSTRUCTION_BUDGET)) {
         seen.add(item.tokenId);
@@ -424,6 +429,7 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
         }
       }
 
+      mark('vfat.unknownEnrich');
       trace('vfatPositions', vfatCandidates.length);
       trace('vfatEverOwned', vfatEverOwned.length);
       if (vfatCandidates.length === 0 && vfatEverOwned.length === 0) trace('sickleEmpty', true);
@@ -533,7 +539,12 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
   //    claimed, so they are rebuilt from the chain rather than quietly dropped.
   let burnedRebuilt = 0;
   if (deep && burned.length) {
-    const rebuilt = await batchedRequests(burned.slice(0, 20), async (item) => {
+    // 20 is the shipped cap. maxRebuild lowers it for measurement only: the
+    // deep build overruns the route's sixty seconds on a heavy wallet, and a
+    // request that times out returns no timings at all, so the cost per
+    // reconstruction can only be read from runs that finish.
+    const rebuildCap = maxRebuild == null ? 20 : Math.max(0, Math.min(20, maxRebuild));
+    const rebuilt = await batchedRequests(burned.slice(0, rebuildCap), async (item) => {
       // Everything in here is wrapped, because batchedRequests reports a thrown
       // error as a rejected promise and the loop below only reads fulfilled
       // ones. A throw therefore vanished completely: no position, no reason, no

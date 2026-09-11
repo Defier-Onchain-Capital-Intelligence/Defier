@@ -25,10 +25,18 @@ export async function GET(req: Request, ctx: { params: Promise<{ address: string
   const { limited } = rateLimit(req, { max: 6, windowMs: 60_000, prefix: 'diag' });
   if (limited) return NextResponse.json({ error: 'Too many requests.' }, { status: 429 });
 
-  const deep = new URL(req.url).searchParams.get('deep') === '1';
+  const search = new URL(req.url).searchParams;
+  const deep = search.get('deep') === '1';
+  // Measurement only, and only on this route. A deep build that overruns the
+  // function limit returns no timings, so the cost of a reconstruction can
+  // only be read from runs small enough to finish.
+  const rebuildParam = Number(search.get('rebuild'));
+  const maxRebuild = Number.isInteger(rebuildParam) && rebuildParam >= 0 && rebuildParam <= 20
+    ? rebuildParam
+    : null;
 
   try {
-    const portfolio = await buildPortfolio(address, { diagnostics: true, deep });
+    const portfolio = await buildPortfolio(address, { diagnostics: true, deep, maxRebuild });
     const p = portfolio as unknown as {
       diagnostics?: { steps: Array<{ step: string; value: unknown }> };
       historyGap?: unknown;
@@ -46,6 +54,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ address: string
     return NextResponse.json({
       address,
       deep,
+      maxRebuild,
       rpcHealth: stepValue('rpcHealth'),
       // Where the sixty seconds go, phase by phase. Cumulative from the start.
       phaseMs: (p.diagnostics?.steps ?? [])
