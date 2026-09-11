@@ -314,8 +314,25 @@ export async function getWalletTokenIdsFromLogs(wallet, protocol = 'aerodrome', 
  * pair. After that the position replays like any other.
  */
 const POOL_MINT_TOPIC = ethers.utils.id('Mint(address,address,int24,int24,uint128,uint256,uint256)');
+/**
+ * A tick out of an indexed event topic.
+ *
+ * An int24 travelling in a 32 byte topic is sign extended, so tick -100 arrives
+ * as 0xffff…ff9c. Converting that whole word to a JS number overflows and
+ * throws, before the two's complement line below ever runs — so this used to
+ * fail on every negative tick and succeed on every positive one.
+ *
+ * That is not a rare case. A tick is negative whenever the pool's price is
+ * below 1 in its own token0/token1 terms, which is most WETH/cbBTC positions
+ * and a good share of everything else. The effect was that closed positions in
+ * those pools could never be rebuilt: the report said so, honestly, and the
+ * reason was this line rather than anything about the chain.
+ *
+ * Masking to the low 24 bits first discards the sign extension and leaves the
+ * actual int24, which the existing two's complement then reads correctly.
+ */
 const int24Of = (topicHex) => {
-  const raw = ethers.BigNumber.from(topicHex).toNumber();
+  const raw = ethers.BigNumber.from(topicHex).mask(24).toNumber();
   return raw >= 0x800000 ? raw - 0x1000000 : raw;   // two's complement, 24 bits
 };
 
