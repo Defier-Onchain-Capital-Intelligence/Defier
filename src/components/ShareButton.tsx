@@ -108,7 +108,7 @@ export function ShareButton({ lifetime, address }: { lifetime: LifetimeReport; a
           href={`/c/${cardId}`}
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-2 block text-center text-[0.6875rem] text-accent"
+          className="mt-2 block text-center text-[0.6875rem] text-accent-text"
         >
           See the card
         </a>

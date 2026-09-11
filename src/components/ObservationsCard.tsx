@@ -34,7 +34,7 @@ export function ObservationsCard({ observations, address }: {
     <Card>
       <div className="flex items-baseline justify-between">
         <Label>What we noticed</Label>
-        <Link href={`/ask?wallet=${address}`} className="text-xs text-accent">Ask about it</Link>
+        <Link href={`/ask?wallet=${address}`} className="text-xs text-accent-text">Ask about it</Link>
       </div>
 
       <ul className="divide-hair mt-1">
@@ -66,7 +66,7 @@ export function ObservationsCard({ observations, address }: {
         <button
           type="button"
           onClick={() => setExpanded(true)}
-          className="mt-1 text-xs text-accent"
+          className="mt-1 text-xs text-accent-text"
         >
           Show {hidden} more
         </button>

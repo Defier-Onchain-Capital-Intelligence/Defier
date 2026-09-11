@@ -31,10 +31,23 @@ const config: Config = {
         ink: {
           primary:   '#F7F8FA',
           secondary: '#A2A9B8',
-          muted:     '#6B7280',
+          // Was #6B7280, which came out at 4.12 on the page, 3.87 on a card and
+          // 3.56 on a row: below the 4.5 that normal text needs, on every
+          // surface, for the colour most of the small text on this product is
+          // written in. Raised along its own hue until it clears 4.5 on the
+          // lightest surface, which is the least change that makes it legible.
+          muted:     '#828A9C',
         },
         accent: {
-          DEFAULT: '#3B6EF6',   // Base blue, actions only
+          // Two blues, because one cannot do both jobs. White on #3B6EF6 is
+          // 4.42, just under the line, so a button label in it failed; blue on
+          // a dark card is 3.89, so a link in it failed the other way. Making
+          // the fill darker fixes the label and breaks the link, and the
+          // reverse. So the fill is darker, the text is lighter, and the brand
+          // blue stays exactly itself wherever it is not carrying words.
+          DEFAULT: '#3B6EF6',   // the mark and anything not text
+          fill:    '#3566EE',   // behind white labels: white reads 4.90
+          text:    '#5583F8',   // blue on dark: 4.91 on the lightest surface
           soft:    '#16203A',
           dim:     '#2E58D0',
         },

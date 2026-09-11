@@ -238,7 +238,7 @@ function Chip({ active, onClick, children }: {
       onClick={onClick}
       className={`rounded-full border px-2.5 py-1 text-[0.6875rem] transition-colors ${
         active
-          ? 'border-accent bg-accent/10 text-accent'
+          ? 'border-accent bg-accent/10 text-accent-text'
           : 'border-bg-border text-ink-secondary hover:text-ink-primary'
       }`}
     >

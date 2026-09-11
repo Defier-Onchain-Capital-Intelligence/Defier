@@ -80,7 +80,7 @@ export function WalletBadge({ address }: { address: string }) {
       </button>
 
       {connected && !isOwn ? (
-        <Link href={`/?address=${connected.toLowerCase()}`} className="mt-1 block text-[0.6875rem] text-accent">
+        <Link href={`/?address=${connected.toLowerCase()}`} className="mt-1 block text-[0.6875rem] text-accent-text">
           Back to your wallet
         </Link>
       ) : null}

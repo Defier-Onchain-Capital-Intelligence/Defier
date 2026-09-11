@@ -62,7 +62,7 @@ export default function DocsIndex() {
       </div>
 
       <p className="text-[0.6875rem] text-ink-muted">
-        Source: <a className="text-accent underline underline-offset-2" href="https://github.com/Defier-Onchain-Capital-Intelligence/Defier">github.com/Defier-Onchain-Capital-Intelligence/Defier</a>
+        Source: <a className="text-accent-text underline underline-offset-2" href="https://github.com/Defier-Onchain-Capital-Intelligence/Defier">github.com/Defier-Onchain-Capital-Intelligence/Defier</a>
       </p>
     </div>
   );

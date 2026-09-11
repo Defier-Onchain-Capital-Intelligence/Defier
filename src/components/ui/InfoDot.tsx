@@ -35,7 +35,7 @@ export function InfoDot({ label, children }: { label: string; children: React.Re
         onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen((v) => !v); }}
         className={`ml-1 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border text-[0.5625rem] leading-none transition-colors ${
           open
-            ? 'border-accent text-accent'
+            ? 'border-accent text-accent-text'
             : 'border-ink-muted/50 text-ink-muted hover:border-ink-secondary hover:text-ink-secondary'
         }`}
       >

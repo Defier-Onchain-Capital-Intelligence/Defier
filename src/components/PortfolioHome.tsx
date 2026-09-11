@@ -163,7 +163,7 @@ export function PortfolioHome({ address }: { address: string }) {
                 What impermanent loss has actually cost this wallet, and whether the fees covered it.
               </p>
             </div>
-            <span aria-hidden className="shrink-0 text-accent">&rarr;</span>
+            <span aria-hidden className="shrink-0 text-accent-text">&rarr;</span>
           </div>
         </Card>
       </Link>
@@ -173,7 +173,7 @@ export function PortfolioHome({ address }: { address: string }) {
       <Card>
         <div className="flex items-baseline justify-between">
           <Label>Your pools</Label>
-          <Link href={`/pools?wallet=${address}&tab=mine`} className="text-xs text-accent">See all</Link>
+          <Link href={`/pools?wallet=${address}&tab=mine`} className="text-xs text-accent-text">See all</Link>
         </div>
         {open.length === 0 ? (
           <p className="muted mt-3">No open liquidity positions on Base.</p>

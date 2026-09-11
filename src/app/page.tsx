@@ -47,7 +47,7 @@ export default async function HomePage({
   return (
     <div className="space-y-6 pt-8">
       <div>
-        <p className="label text-accent">Onchain capital intelligence</p>
+        <p className="label text-accent-text">Onchain capital intelligence</p>
         <h1 className="mt-3 text-[1.75rem] font-semibold leading-tight tracking-tight">
           Know what your capital
           <br />is actually earning.

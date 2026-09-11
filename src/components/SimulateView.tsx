@@ -330,7 +330,7 @@ export function SimulateView({ preset, context, poolId }: {
               <button
                 type="button"
                 onClick={() => setCtx(undefined)}
-                className="ml-auto shrink-0 text-[0.6875rem] text-accent"
+                className="ml-auto shrink-0 text-[0.6875rem] text-accent-text"
               >
                 Change
               </button>
@@ -601,7 +601,7 @@ function CurveTooltip({ active, payload, label, symbol0, symbol1 }: {
             <div className="bg-stock" style={{ width: `${pct1}%` }} />
           </div>
           <p className="mt-1.5 tnum text-ink-secondary">
-            <span className="text-accent">{pct0.toFixed(0)}%</span> {symbol0}
+            <span className="text-accent-text">{pct0.toFixed(0)}%</span> {symbol0}
             {' · '}
             <span className="text-stock">{pct1.toFixed(0)}%</span> {symbol1}
           </p>

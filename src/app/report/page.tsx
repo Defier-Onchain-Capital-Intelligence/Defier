@@ -24,7 +24,7 @@ export default async function ReportPage({
     return (
       <div className="space-y-6 pt-6">
         <div>
-          <p className="label text-accent">The number nobody can look up</p>
+          <p className="label text-accent-text">The number nobody can look up</p>
           <h1 className="mt-3 text-[1.75rem] font-semibold leading-tight tracking-tight">
             What has impermanent
             <br />loss actually cost you?

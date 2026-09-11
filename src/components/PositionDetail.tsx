@@ -161,7 +161,7 @@ export function PositionDetail({ id, wallet }: { id: string; wallet: string }) {
                 <a
                   href={`https://basescan.org/tx/${e.txHash}`}
                   target="_blank" rel="noreferrer"
-                  className="mt-1 inline-block text-[0.6875rem] text-accent"
+                  className="mt-1 inline-block text-[0.6875rem] text-accent-text"
                 >
                   View on Basescan
                 </a>
@@ -214,7 +214,7 @@ function SimulateLink({ pos }: { pos: LpPosition }) {
             Opens the simulator with this position&rsquo;s range and size already filled in
           </p>
         </div>
-        <span aria-hidden className="text-accent">&rarr;</span>
+        <span aria-hidden className="text-accent-text">&rarr;</span>
       </div>
     </Link>
   );

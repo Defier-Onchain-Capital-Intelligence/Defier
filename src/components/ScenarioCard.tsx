@@ -34,7 +34,7 @@ export function ScenarioCard({ scenarios }: { scenarios: Scenarios }) {
             Your liquidity positions convert as prices move. This is what you would be left holding.
           </p>
         </div>
-        <span className="shrink-0 text-xs text-accent">{open ? 'Hide' : 'Show'}</span>
+        <span className="shrink-0 text-xs text-accent-text">{open ? 'Hide' : 'Show'}</span>
       </button>
 
       {open ? (

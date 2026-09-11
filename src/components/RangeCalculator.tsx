@@ -319,7 +319,7 @@ export function RangeCalculator({ pool }: { pool: PoolDetail }) {
               type="button"
               onClick={() => { setLo(idx); setHi(idx); }}
               className={`rounded-full border px-2.5 py-1 text-[0.6875rem] transition-colors ${
-                active ? 'border-accent bg-accent/10 text-accent'
+                active ? 'border-accent bg-accent/10 text-accent-text'
                   : 'border-bg-border text-ink-secondary hover:text-ink-primary'
               }`}
             >
@@ -347,7 +347,7 @@ export function RangeCalculator({ pool }: { pool: PoolDetail }) {
           className="mt-4 flex items-center justify-between rounded-xl border border-bg-border bg-bg-elevated px-3 py-2.5 transition-colors hover:bg-bg-elevated/60"
         >
           <span className="text-sm font-medium">Simulate this range</span>
-          <span aria-hidden className="text-accent">&rarr;</span>
+          <span aria-hidden className="text-accent-text">&rarr;</span>
         </Link>
       ) : null}
 

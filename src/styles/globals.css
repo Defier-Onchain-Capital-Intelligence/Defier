@@ -33,7 +33,7 @@
   .pill-muted  { @apply pill bg-bg-elevated text-ink-secondary; }
 
   .btn          { @apply inline-flex items-center justify-center rounded-xl px-4 py-3 text-sm font-medium transition-colors; }
-  .btn-primary  { @apply btn bg-accent text-white hover:bg-accent-dim active:bg-accent-dim disabled:opacity-40; }
+  .btn-primary  { @apply btn bg-accent-fill text-white hover:bg-accent-dim active:bg-accent-dim disabled:opacity-40; }
   .btn-ghost    { @apply btn border border-bg-border bg-bg-surface text-ink-primary hover:bg-bg-elevated; }
 
   .input        { @apply w-full rounded-xl bg-bg-elevated border border-bg-border px-4 py-3 text-sm
@@ -41,7 +41,7 @@
                          focus:border-accent focus:ring-1 focus:ring-accent; }
 
   .tab          { @apply flex-1 rounded-lg px-3 py-2 text-sm font-medium text-ink-secondary transition-colors; }
-  .tab-active   { @apply bg-accent text-white; }
+  .tab-active   { @apply bg-accent-fill text-white; }
 
   .row          { @apply flex items-center justify-between gap-3 py-3; }
   .divide-hair  { @apply divide-y divide-bg-border; }
@@ -59,7 +59,7 @@
   .docs-prose ol { @apply my-4 list-decimal space-y-2 pl-5; }
   .docs-prose li::marker { @apply text-ink-muted; }
   .docs-prose strong { @apply font-semibold text-ink-primary; }
-  .docs-prose a { @apply text-accent underline underline-offset-2; }
+  .docs-prose a { @apply text-accent-text underline underline-offset-2; }
   .docs-prose code { @apply rounded bg-bg-elevated px-1.5 py-0.5 text-[0.8125rem] text-ink-primary; }
   .docs-prose pre { @apply my-5 overflow-x-auto rounded-xl border border-bg-border bg-bg-elevated p-4 text-[0.8125rem] leading-relaxed; }
   .docs-prose pre code { @apply bg-transparent p-0; }
