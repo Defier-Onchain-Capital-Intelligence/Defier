@@ -124,3 +124,17 @@ test('health is computed in the market\'s own terms, never ours', () => {
   assert.ok(!/usdOf\(/.test(block),
     'mixing our USD prices with their LLTV produces a ratio that belongs to nobody');
 });
+
+test('the scan can never become the request', () => {
+  const src = read('../src/core/morpho.js');
+  assert.match(src, /DISCOVERY_BUDGET_MS/,
+    'an unbounded log scan turned an 8 second portfolio into a 52 second one');
+  assert.match(src, /Promise\.race/,
+    'the budget has to be enforced against the clock, not against a chunk count alone');
+  // And when it runs out, the wallet is told we did not look.
+  const body = src.slice(src.indexOf('export async function readMorpho'));
+  assert.match(body, /could not be searched on this request/);
+  const guard = body.slice(0, body.indexOf('const paramsRes'));
+  assert.match(guard, /readFailed: true/,
+    'an unsearched protocol must leave coverage.checked, or the screen claims we looked');
+});

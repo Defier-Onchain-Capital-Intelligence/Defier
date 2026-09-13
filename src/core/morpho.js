@@ -81,6 +81,30 @@ const TOPIC = {
 const pad32 = (addr) => ethers.utils.hexZeroPad(String(addr).toLowerCase(), 32);
 
 /**
+ * How much of a request the Morpho scan may spend, and why there is a limit.
+ *
+ * Finding a wallet's markets by log is the wrong shape, and shipping it is how
+ * I found out. Morpho has been live on Base for 37.3 million blocks. Every
+ * public RPC caps eth_getLogs at 1,000 to 10,000 blocks a call — measured, not
+ * assumed: drpc refuses ranges over 10,000, Tenderly over 1,000 — so covering
+ * that history is thousands of sequential requests. Per wallet. The scan ran
+ * 900 chunks and took 34 seconds of a 60 second budget, which turned an 8
+ * second portfolio into a 52 second one for EVERY wallet, including the ones
+ * that have never touched Morpho.
+ *
+ * The real fix is not a smaller budget. Markets are global, so they should be
+ * enumerated once and shared, and a wallet's position in each is a cheap
+ * `position(id, wallet)` in a multicall. That is the next commit.
+ *
+ * Until then this is a tourniquet, and it is deliberately an honest one: the
+ * scan cannot take more than a few seconds, and when it cannot finish, Morpho
+ * is reported as unsearched rather than as searched and empty. A wallet is
+ * told we did not look. It is not told it has no debt.
+ */
+const DISCOVERY_BUDGET_MS = 6000;
+const DISCOVERY_MAX_CHUNKS = 60;
+
+/**
  * Morpho's share maths, copied exactly rather than approximated.
  *
  * The virtual shares and assets exist to make the first deposit in a market
@@ -157,10 +181,10 @@ export async function discoverMarkets(wallet) {
   const borrowedReport = {};
   const range = {
     fromBlock: MORPHO.deployBlock, toBlock: head, backward: false,
-    collectAll: true, maxResults: 400, maxChunks: 900,
+    collectAll: true, maxResults: 400, maxChunks: DISCOVERY_MAX_CHUNKS,
   };
 
-  const [supplied, borrowed] = await Promise.all([
+  const scans = Promise.all([
     chunkedGetLogs(CHAIN, {
       address: MORPHO.address,
       // onBehalf sits in topic 3 for both of these.
@@ -173,13 +197,25 @@ export async function discoverMarkets(wallet) {
     }, { ...range, report: borrowedReport }).catch(() => []),
   ]);
 
+  // A hard ceiling on what this may cost the request. Without it the scan is
+  // the request: see DISCOVERY_BUDGET_MS.
+  let timedOut = false;
+  const [supplied, borrowed] = await Promise.race([
+    scans,
+    new Promise((resolve) => setTimeout(() => { timedOut = true; resolve([[], []]); }, DISCOVERY_BUDGET_MS)),
+  ]);
+  scans.catch(() => []);
+
   const ids = [...new Set(
     [...(supplied || []), ...(borrowed || [])]
       .map((log) => log?.topics?.[1])
       .filter(Boolean),
   )];
 
-  return { ids, incomplete: Boolean(suppliedReport.truncated || borrowedReport.truncated) };
+  return {
+    ids,
+    incomplete: timedOut || Boolean(suppliedReport.truncated || borrowedReport.truncated),
+  };
 }
 
 /**
@@ -189,9 +225,10 @@ export async function discoverMarkets(wallet) {
 export async function readMorpho(provider, wallet) {
   const { ids, incomplete } = await discoverMarkets(wallet);
   if (incomplete && ids.length === 0) {
+    // Not "no position on Morpho". We did not get to look.
     return {
       position: null,
-      note: 'Morpho could not be searched, so any position there is not included.',
+      note: 'Morpho could not be searched on this request, so any position there is not included.',
       readFailed: true,
     };
   }
