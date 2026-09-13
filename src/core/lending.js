@@ -1,12 +1,14 @@
 /**
  * core/lending.js · What the wallet has lent and what it owes, on Base.
  *
- * Three protocols are read: Aave v3, Moonwell and Compound v3. Each is asked
- * directly, with a fixed number of calls, so a position is either measured or
- * reported as unreadable. Morpho is not covered yet; every screen that shows
- * this says which protocols were checked, because a wallet borrowing somewhere
- * we do not look would otherwise read as a wallet with no debt, and that is a
- * wrong answer rather than a missing one.
+ * Four protocols are read: Aave v3, Moonwell, Compound v3 and Morpho. Each is
+ * asked directly, with a fixed number of calls, so a position is either
+ * measured or reported as unreadable. Every screen that shows this says which
+ * protocols were checked, because a wallet borrowing somewhere we do not look
+ * would otherwise read as a wallet with no debt, and that is a wrong answer
+ * rather than a missing one. Morpho lives in core/morpho.js: it has thousands
+ * of independent markets instead of one pool, so it is discovered by event
+ * rather than enumerated, and that is a file's worth of difference.
  *
  * Two rules this file exists to enforce:
  *
@@ -30,6 +32,8 @@ import { MULTICALL3_ADDR, MULTICALL3_ABI, ERC20_ABI } from './constants.js';
 import { getProvider, withTimeout } from './providers.js';
 import { classify } from './exposure.js';
 import { fetchTokenPricesBatch } from './prices.js';
+import { safeSymbol } from './untrusted.js';
+import { readMorpho } from './morpho.js';
 
 const CHAIN = 'base';
 
@@ -46,14 +50,15 @@ export const LENDING_ADDRS = {
 };
 
 export const LENDING_COVERAGE = {
-  checked: ['Aave v3', 'Moonwell', 'Compound v3'],
-  notCovered: ['Morpho'],
+  checked: ['Aave v3', 'Moonwell', 'Compound v3', 'Morpho'],
+  notCovered: [],
 };
 
 const PROTOCOL_LABEL = {
   'aave-v3': 'Aave v3',
   moonwell: 'Moonwell',
   'compound-v3': 'Compound v3',
+  morpho: 'Morpho',
 };
 
 export function lendingProtocolLabel(protocol) {
@@ -153,7 +158,11 @@ async function tokenMeta(provider, addresses) {
     let decimals = 18;
     try { if (res[i * 2]?.success) [symbol] = erc20.decodeFunctionResult('symbol', res[i * 2].returnData); } catch (_) { /* keep */ }
     try { if (res[i * 2 + 1]?.success) [decimals] = erc20.decodeFunctionResult('decimals', res[i * 2 + 1].returnData); } catch (_) { /* keep */ }
-    map.set(address, { address, symbol, decimals: Number(decimals), assetClass: classify(address) });
+    // A lending market's token symbol is a stranger's text on the same path as
+    // a pool's, and it reaches the assistant the same way. See core/untrusted.js.
+    map.set(address, {
+      address, symbol: safeSymbol(symbol), decimals: Number(decimals), assetClass: classify(address),
+    });
   });
   return map;
 }
@@ -590,9 +599,14 @@ export async function getLendingPositions(wallet) {
     readAave(provider, wallet),
     readMoonwell(provider, wallet),
     ...LENDING_ADDRS.comets.map((m) => readComet(provider, wallet, m)),
+    readMorpho(provider, wallet),
   ]);
 
-  const labels = ['Aave v3', 'Moonwell', ...LENDING_ADDRS.comets.map((m) => `Compound v3 ${m.label}`)];
+  const labels = [
+    'Aave v3', 'Moonwell',
+    ...LENDING_ADDRS.comets.map((m) => `Compound v3 ${m.label}`),
+    'Morpho',
+  ];
   const positions = [];
   const notes = [];
   const failed = [];

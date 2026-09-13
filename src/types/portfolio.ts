@@ -178,7 +178,7 @@ export interface TokenHolding {
   valueUsd: number | null;
 }
 
-export type LendingProtocol = 'aave-v3' | 'moonwell' | 'compound-v3';
+export type LendingProtocol = 'aave-v3' | 'moonwell' | 'compound-v3' | 'morpho';
 
 export interface LendingPosition {
   protocol: LendingProtocol;
