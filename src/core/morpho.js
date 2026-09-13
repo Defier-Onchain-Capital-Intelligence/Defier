@@ -14,18 +14,35 @@
  * call, because there is no such thing: there is a position per market, and
  * nothing on chain enumerates which markets a wallet has touched.
  *
- * So discovery is by event, and the events are the subtle part. Morpho indexes
- * `onBehalf` in all of them, but NOT in the same topic slot:
+ * Discovery cannot be done on chain, and that is Morpho's own position, not a
+ * shortcut: "The total collateral on a given market is not easily retrievable
+ * onchain. One has to index all positions." There are 4,298 markets on Base as
+ * of today, nothing enumerates a wallet's, and reading `position()` for all of
+ * them on every request is not a design either.
  *
- *   Supply(id, caller, onBehalf, ...)             → onBehalf is topic 3
- *   SupplyCollateral(id, caller, onBehalf, ...)   → onBehalf is topic 3
- *   Borrow(id, onBehalf, receiver, ...)           → onBehalf is topic 2
+ * The first attempt at this file discovered markets from Morpho's events. It
+ * worked and it was unusable: Morpho has been live on Base for 37.3 million
+ * blocks, every RPC caps eth_getLogs between 1,000 and 10,000 blocks a call
+ * (measured — drpc refuses over 10,000, Tenderly over 1,000), so covering that
+ * history took 900 sequential requests per filter, per wallet. It turned an 8
+ * second portfolio into a 52 second one for every wallet on the site,
+ * including the ones that have never touched Morpho.
  *
- * Borrow does not index `caller`, so everything shifts left by one. Filtering
- * all three on topic 3 finds the supplies and silently misses every borrow,
- * which would have produced the exact failure this file exists to prevent: a
- * wallet with debt, reported as a wallet with collateral and no debt. Verified
- * against a live Borrow log on Base: four topics, onBehalf in slot 2.
+ * So the split is: **the API says where to look, the chain says what is
+ * there.** One GraphQL call to Morpho's own indexer names the markets this
+ * wallet has a position in, in about 700 ms. Every figure that reaches a
+ * screen is then read from the chain, here, and cross-checked against what the
+ * API claimed. Nothing is cached: the numbers are as live as an eth_call.
+ *
+ * That cross-check is worth more than it looks. Morpho publishes no health
+ * factor and no account state, so unlike Aave, Moonwell and Comet it offers no
+ * second opinion of its own — and this file's second rule is that every
+ * derived figure is checked against a number stated elsewhere. The API is that
+ * number. Measured on a live position: our chain read said 1,530.000161 USDC
+ * of debt, the API said 1,530.132778, a gap of 0.0087% which is the interest
+ * accrued between the two reads. Collateral matched to the unit.
+ *
+ * If the API is unreachable, Morpho is reported as UNSEARCHED. Not as empty.
  *
  * Totals are read exactly rather than approximately. `market(id)` returns
  * figures as of `lastUpdate`, so a position read straight from it understates
@@ -44,23 +61,21 @@
  */
 import { ethers } from 'ethers';
 import { MULTICALL3_ADDR, MULTICALL3_ABI, ERC20_ABI } from './constants.js';
-import { getLogsProvider, withTimeout, chunkedGetLogs } from './providers.js';
+import { withTimeout } from './providers.js';
 import { classify } from './exposure.js';
 import { fetchTokenPricesBatch } from './prices.js';
 import { safeSymbol } from './untrusted.js';
 
 const CHAIN = 'base';
 
-/**
- * Morpho Blue on Base.
- *
- * The deploy block was found by binary search on eth_getCode against an
- * archive node, not copied from a document: there is code at 13,977,148 and
- * none at 13,977,147. It is the floor for every log scan below, and a floor
- * that is too low turns one scan into hundreds of chunks.
- */
+/** Morpho Blue on Base. */
 export const MORPHO = {
   address: '0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb',
+  /**
+   * Kept though nothing scans any more. It was established by binary search on
+   * eth_getCode against an archive node — code at this block, none at the one
+   * before — and a verified fact is cheaper to keep than to establish twice.
+   */
   deployBlock: 13977148,
 };
 
@@ -72,37 +87,45 @@ const ABI = new ethers.utils.Interface([
   'function price() view returns (uint256)',
 ]);
 
-const TOPIC = {
-  supply: ethers.utils.id('Supply(bytes32,address,address,uint256,uint256)'),
-  supplyCollateral: ethers.utils.id('SupplyCollateral(bytes32,address,address,uint256)'),
-  borrow: ethers.utils.id('Borrow(bytes32,address,address,address,uint256,uint256)'),
-};
-
-const pad32 = (addr) => ethers.utils.hexZeroPad(String(addr).toLowerCase(), 32);
+/*
+ * If anyone ever comes back to reading Morpho's events — for verification, or
+ * because the indexer went away — this is the trap that cost a day, written
+ * down so it is paid for once. Morpho indexes `onBehalf` in all three, but NOT
+ * in the same topic slot:
+ *
+ *   Supply(id, caller, onBehalf, ...)            onBehalf is topic 3
+ *   SupplyCollateral(id, caller, onBehalf, ...)  onBehalf is topic 3
+ *   Borrow(id, onBehalf, receiver, ...)          onBehalf is topic 2
+ *
+ * Borrow does not index the caller, so everything shifts left by one. One
+ * filter on topic 3 for all three finds every supply and misses every borrow —
+ * a wallet with debt reported as a wallet with collateral and nothing owed,
+ * which is the failure this whole file exists to prevent. Confirmed against a
+ * live Borrow log on Base at block 51,252,660: four topics, onBehalf in slot 2.
+ */
 
 /**
- * How much of a request the Morpho scan may spend, and why there is a limit.
+ * Morpho's own indexer. Used for one thing: which markets to look at.
  *
- * Finding a wallet's markets by log is the wrong shape, and shipping it is how
- * I found out. Morpho has been live on Base for 37.3 million blocks. Every
- * public RPC caps eth_getLogs at 1,000 to 10,000 blocks a call — measured, not
- * assumed: drpc refuses ranges over 10,000, Tenderly over 1,000 — so covering
- * that history is thousands of sequential requests. Per wallet. The scan ran
- * 900 chunks and took 34 seconds of a 60 second budget, which turned an 8
- * second portfolio into a 52 second one for EVERY wallet, including the ones
- * that have never touched Morpho.
- *
- * The real fix is not a smaller budget. Markets are global, so they should be
- * enumerated once and shared, and a wallet's position in each is a cheap
- * `position(id, wallet)` in a multicall. That is the next commit.
- *
- * Until then this is a tourniquet, and it is deliberately an honest one: the
- * scan cannot take more than a few seconds, and when it cannot finish, Morpho
- * is reported as unsearched rather than as searched and empty. A wallet is
- * told we did not look. It is not told it has no debt.
+ * A cap on how long it may take, because the last version of this file taught
+ * the lesson the expensive way — a discovery step with no ceiling becomes the
+ * request. Past this, Morpho is reported as unsearched.
  */
-const DISCOVERY_BUDGET_MS = 6000;
-const DISCOVERY_MAX_CHUNKS = 60;
+const API_URL = 'https://api.morpho.org/graphql';
+const API_BUDGET_MS = 5000;
+const BASE_CHAIN_ID = 8453;
+
+/**
+ * How far our chain read may sit from what the API said before we stop
+ * believing either of them.
+ *
+ * Interest accrues between the two reads, so they are never identical: the gap
+ * measured on a live position was 0.0087%. Two percent is loose enough for
+ * that and for a slow indexer, and tight enough that a real mismatch — a
+ * decimals mistake, the wrong market, a shares conversion off by a factor —
+ * cannot hide inside it.
+ */
+const API_AGREEMENT_TOLERANCE = 0.02;
 
 /**
  * Morpho's share maths, copied exactly rather than approximated.
@@ -156,66 +179,68 @@ const asFloat = (raw, decimals) => {
 };
 
 /**
- * Every Morpho market this wallet has ever touched.
+ * Which markets this wallet has a position in, and what the indexer thinks is
+ * in them.
  *
- * Two scans rather than one because of the topic slot difference described at
- * the top of this file. `incomplete` travels with the result: a short list that
- * looks complete is how a wallet gets told it has no debt on a market we simply
- * stopped looking for.
+ * The claimed amounts come back too, and they are not used as figures — every
+ * one is re-read from the chain below. They are kept as a second opinion,
+ * because Morpho gives us none of its own.
  *
- * @returns {Promise<{ids: string[], incomplete: boolean}>}
+ * @returns {Promise<{markets: Array<object>, ok: boolean, reason: string|null}>}
  */
 export async function discoverMarkets(wallet) {
-  const walletTopic = pad32(wallet);
-  const logsProvider = await getLogsProvider(CHAIN);
-  if (!logsProvider) return { ids: [], incomplete: true };
+  const query = `{
+    marketPositions(where: { userAddress_in: ["${wallet}"], chainId_in: [${BASE_CHAIN_ID}] }) {
+      items {
+        healthFactor
+        market { marketId }
+        state { collateral borrowAssets supplyAssets }
+      }
+    }
+  }`;
 
-  let head;
+  let json;
   try {
-    head = await withTimeout(logsProvider.getBlockNumber(), 8000);
-  } catch (_) {
-    return { ids: [], incomplete: true };
+    const res = await withTimeout(fetch(API_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query }),
+    }), API_BUDGET_MS);
+    if (!res.ok) return { markets: [], ok: false, reason: `http ${res.status}` };
+    json = await res.json();
+  } catch (err) {
+    return { markets: [], ok: false, reason: String(err?.message || err).slice(0, 120) };
   }
 
-  const suppliedReport = {};
-  const borrowedReport = {};
-  const range = {
-    fromBlock: MORPHO.deployBlock, toBlock: head, backward: false,
-    collectAll: true, maxResults: 400, maxChunks: DISCOVERY_MAX_CHUNKS,
-  };
+  if (json?.errors) {
+    return { markets: [], ok: false, reason: String(json.errors[0]?.message || 'query rejected').slice(0, 120) };
+  }
+  const items = json?.data?.marketPositions?.items;
+  // A missing list is not an empty one. Only an array means "we were told, and
+  // the answer was none".
+  if (!Array.isArray(items)) return { markets: [], ok: false, reason: 'unexpected response shape' };
 
-  const scans = Promise.all([
-    chunkedGetLogs(CHAIN, {
-      address: MORPHO.address,
-      // onBehalf sits in topic 3 for both of these.
-      topics: [[TOPIC.supply, TOPIC.supplyCollateral], null, null, walletTopic],
-    }, { ...range, report: suppliedReport }).catch(() => []),
-    chunkedGetLogs(CHAIN, {
-      address: MORPHO.address,
-      // and in topic 2 for this one, because Borrow does not index the caller.
-      topics: [TOPIC.borrow, null, walletTopic],
-    }, { ...range, report: borrowedReport }).catch(() => []),
-  ]);
+  const markets = items
+    .map((it) => {
+      const id = it?.market?.marketId;
+      if (typeof id !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(id)) return null;
+      const num = (v) => {
+        const n = Number(v);
+        return Number.isFinite(n) && n >= 0 ? n : null;
+      };
+      return {
+        id,
+        claimed: {
+          collateral: num(it?.state?.collateral),
+          borrowAssets: num(it?.state?.borrowAssets),
+          supplyAssets: num(it?.state?.supplyAssets),
+          healthFactor: num(it?.healthFactor),
+        },
+      };
+    })
+    .filter(Boolean);
 
-  // A hard ceiling on what this may cost the request. Without it the scan is
-  // the request: see DISCOVERY_BUDGET_MS.
-  let timedOut = false;
-  const [supplied, borrowed] = await Promise.race([
-    scans,
-    new Promise((resolve) => setTimeout(() => { timedOut = true; resolve([[], []]); }, DISCOVERY_BUDGET_MS)),
-  ]);
-  scans.catch(() => []);
-
-  const ids = [...new Set(
-    [...(supplied || []), ...(borrowed || [])]
-      .map((log) => log?.topics?.[1])
-      .filter(Boolean),
-  )];
-
-  return {
-    ids,
-    incomplete: timedOut || Boolean(suppliedReport.truncated || borrowedReport.truncated),
-  };
+  return { markets, ok: true, reason: null };
 }
 
 /**
@@ -223,16 +248,20 @@ export async function discoverMarkets(wallet) {
  * @returns {Promise<{position: object|null, note: string|null, readFailed?: boolean, transportError?: string|null}>}
  */
 export async function readMorpho(provider, wallet) {
-  const { ids, incomplete } = await discoverMarkets(wallet);
-  if (incomplete && ids.length === 0) {
+  const { markets, ok, reason } = await discoverMarkets(wallet);
+  if (!ok) {
     // Not "no position on Morpho". We did not get to look.
     return {
       position: null,
       note: 'Morpho could not be searched on this request, so any position there is not included.',
       readFailed: true,
+      transportError: reason,
     };
   }
-  if (ids.length === 0) return { position: null, note: null };
+  if (markets.length === 0) return { position: null, note: null };
+
+  const ids = markets.map((m) => m.id);
+  const claimedById = new Map(markets.map((m) => [m.id.toLowerCase(), m.claimed]));
 
   // Market parameters first: every later call needs them, and accrueInterest
   // takes the whole struct rather than the id.
@@ -309,6 +338,26 @@ export async function readMorpho(provider, wallet) {
   const borrowedOut = [];
   let totalCollateralUsd = 0;
   let totalDebtUsd = 0;
+  /** Markets where our chain read and the indexer do not describe the same position. */
+  const disagreements = [];
+
+  /**
+   * Our figure against the one the indexer stated, in raw units.
+   *
+   * This file's second rule is that a derived figure is checked against a
+   * number stated somewhere else, and Morpho is the one protocol here that
+   * states nothing about an account — no health factor, no totals. The indexer
+   * is the only second opinion available, so it is used as one: not to supply
+   * a number, only to disagree with ours.
+   */
+  const agrees = (ours, claimed) => {
+    if (claimed == null) return true;          // nothing claimed, nothing to check
+    const mine = Number(ours);
+    if (!Number.isFinite(mine)) return false;
+    if (mine < 1 && claimed < 1) return true;  // dust either way
+    const scale = Math.max(Math.abs(claimed), 1);
+    return Math.abs(mine - claimed) / scale <= API_AGREEMENT_TOLERANCE;
+  };
   /** Worst health across markets. A wallet is liquidated market by market, so
    *  the number that matters is the closest one to the edge, not the average. */
   let worstHealth = null;
@@ -329,6 +378,13 @@ export async function readMorpho(provider, wallet) {
     const suppliedAmount = asFloat(suppliedAssets, loan.decimals);
     const borrowedAmount = asFloat(borrowedAssets, loan.decimals);
     const collateralAmount = asFloat(r.collateral, coll.decimals);
+
+    const claimed = claimedById.get(String(r.id).toLowerCase()) || {};
+    if (!agrees(borrowedAssets, claimed.borrowAssets)
+      || !agrees(r.collateral, claimed.collateral)
+      || !agrees(suppliedAssets, claimed.supplyAssets)) {
+      disagreements.push(`${coll.symbol}/${loan.symbol}`);
+    }
 
     if (suppliedAmount > 0) {
       if (loanUsd == null) unpriced += 1;
@@ -369,11 +425,15 @@ export async function readMorpho(provider, wallet) {
   if (supplied.length === 0 && borrowedOut.length === 0) return { position: null, note: null };
 
   const notes = [];
-  if (incomplete) {
-    notes.push('Morpho could only be searched over part of this wallet\'s history, so there may be markets we did not see.');
-  }
   if (unpriced > 0) {
     notes.push('Some Morpho markets use tokens we could not price, so their dollar value is missing from the totals.');
+  }
+  if (disagreements.length) {
+    // Two readings of the same position that do not match. One of them is
+    // wrong and we cannot tell which, so neither is put on a screen as fact.
+    notes.push(
+      `Our reading of ${disagreements.join(', ')} on Morpho did not match Morpho's own, so the figures are shown without a health factor.`,
+    );
   }
 
   return {
@@ -382,13 +442,14 @@ export async function readMorpho(provider, wallet) {
       protocolLabel: 'Morpho',
       supplied,
       borrowed: borrowedOut,
-      healthFactor: worstHealth,
+      // A health factor that is close is worse than none: see the type contract.
+      healthFactor: disagreements.length ? null : worstHealth,
       healthSource: 'morpho',
       liquidationThresholdPct: worstLltv,
       netValueUsd: totalCollateralUsd + supplied.reduce((a, s) => a + (s.isCollateral ? 0 : s.valueUsd), 0) - totalDebtUsd,
       totalCollateralUsd,
       totalDebtUsd,
-      breakdownComplete: unpriced === 0 && !incomplete,
+      breakdownComplete: unpriced === 0 && disagreements.length === 0,
     },
     note: notes.length ? notes.join(' ') : null,
   };
@@ -420,4 +481,4 @@ async function tokenMeta(provider, addresses) {
   return map;
 }
 
-export const _internals = { toAssetsUp, toAssetsDown, TOPIC, pad32 };
+export const _internals = { toAssetsUp, toAssetsDown, API_AGREEMENT_TOLERANCE };

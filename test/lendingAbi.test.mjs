@@ -81,7 +81,9 @@ test('nothing is claimed as checked unless something actually reads it', () => {
     'Morpho is built now; leaving it out of checked would understate what we read');
 });
 
-test('Morpho is discovered by event, because nothing enumerates its markets', async () => {
+test('Morpho is the one protocol whose discovery is not on chain', async () => {
   const { MORPHO } = await import('../src/core/morpho.js');
-  assert.ok(MORPHO.deployBlock > 0, 'a log scan needs a floor');
+  assert.equal(MORPHO.address, '0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb');
+  // And that is deliberate: 4,298 markets on Base, no enumerator, and reading
+  // them all per request is not a design. See the header of core/morpho.js.
 });

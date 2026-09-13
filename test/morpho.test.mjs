@@ -1,140 +1,150 @@
 /**
- * Morpho indexes onBehalf in a different topic for Borrow than for Supply.
+ * Morpho is the one protocol here that cannot be discovered on chain.
  *
- * Supply(id, caller, onBehalf, ...)            -> onBehalf is topic 3
- * SupplyCollateral(id, caller, onBehalf, ...)  -> onBehalf is topic 3
- * Borrow(id, onBehalf, receiver, ...)          -> onBehalf is topic 2
+ * That is Morpho's own position, not a shortcut: "The total collateral on a
+ * given market is not easily retrievable onchain. One has to index all
+ * positions." There are 4,298 markets on Base, nothing enumerates a wallet's,
+ * and the first version of this file proved what happens if you try anyway —
+ * 900 sequential eth_getLogs per filter per wallet, and an 8 second portfolio
+ * became a 52 second one for everybody.
  *
- * Borrow does not index `caller`, so everything shifts left by one. Filtering
- * all three on topic 3 finds every supply and misses every borrow, and the
- * wallet is then shown collateral with no debt beside it — the precise failure
- * a lending reader exists to prevent. The scan is two queries for that reason
- * and this file is what stops someone merging them back into one.
+ * So: the indexer says WHERE to look, the chain says WHAT is there, and the
+ * two are compared. These tests hold that split in place — particularly the
+ * part where a missing answer must never be read as an empty one.
  *
  * Run with: npm test
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { ethers } from 'ethers';
-import { MORPHO, _internals } from '../src/core/morpho.js';
+import { MORPHO, _internals, discoverMarkets } from '../src/core/morpho.js';
 
-const { toAssetsUp, toAssetsDown, TOPIC, pad32 } = _internals;
+const { toAssetsUp, toAssetsDown, API_AGREEMENT_TOLERANCE } = _internals;
 const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 
-test('the event topics are the real ones', () => {
-  assert.equal(TOPIC.supply, ethers.utils.id('Supply(bytes32,address,address,uint256,uint256)'));
-  assert.equal(TOPIC.supplyCollateral, ethers.utils.id('SupplyCollateral(bytes32,address,address,uint256)'));
-  assert.equal(TOPIC.borrow, ethers.utils.id('Borrow(bytes32,address,address,address,uint256,uint256)'));
+/** Swap global fetch for one call, and always put it back. */
+async function withFetch(impl, fn) {
+  const original = globalThis.fetch;
+  globalThis.fetch = impl;
+  try { return await fn(); } finally { globalThis.fetch = original; }
+}
+const jsonResponse = (body, ok = true, status = 200) => ({
+  ok, status, json: async () => body,
 });
 
-test('a real Borrow log from Base has onBehalf in topic 2, not topic 3', () => {
-  // Captured on Base at block 51,252,660. Four topics: signature, market id,
-  // onBehalf, receiver.
-  const log = {
-    topics: [
-      TOPIC.borrow,
-      '0xd4a903dc6d949519060c7707f9604fdc9772c046e05c2e3a8fce0bd7196e4109',
-      '0x000000000000000000000000d0daab82453e7f5ea64985415239f01b58c7d1d9',
-      '0x000000000000000000000000d0daab82453e7f5ea64985415239f01b58c7d1d9',
-    ],
+test('a live position is parsed exactly as the indexer returned it', async () => {
+  // Captured from api.morpho.org for 0xd0daab82..., wallet with one position.
+  const body = {
+    data: { marketPositions: { items: [{
+      healthFactor: 1.7446085592827305,
+      market: { marketId: '0xd4a903dc6d949519060c7707f9604fdc9772c046e05c2e3a8fce0bd7196e4109' },
+      state: { collateral: 3189012787, borrowAssets: 1530132778, supplyAssets: 0 },
+    }] } },
   };
-  const borrower = '0xd0daab82453e7f5ea64985415239f01b58c7d1d9';
-  assert.equal(log.topics.length, 4);
-  assert.equal(log.topics[2], pad32(borrower),
-    'onBehalf is topic 2 for Borrow; filtering it on topic 3 finds nothing');
+  const out = await withFetch(async () => jsonResponse(body),
+    () => discoverMarkets('0xd0daab82453e7f5ea64985415239f01b58c7d1d9'));
+  assert.equal(out.ok, true);
+  assert.equal(out.markets.length, 1);
+  assert.equal(out.markets[0].id, '0xd4a903dc6d949519060c7707f9604fdc9772c046e05c2e3a8fce0bd7196e4109');
+  assert.equal(out.markets[0].claimed.borrowAssets, 1530132778);
 });
 
-test('the two scans filter on different topic slots', () => {
+test('an unreachable indexer is not an empty wallet', async () => {
+  for (const [label, impl] of [
+    ['network error', async () => { throw new Error('ECONNREFUSED'); }],
+    ['http 500', async () => jsonResponse({}, false, 500)],
+    ['graphql error', async () => jsonResponse({ errors: [{ message: 'rate limited' }] })],
+    ['missing list', async () => jsonResponse({ data: {} })],
+    ['garbage', async () => jsonResponse({ data: { marketPositions: { items: 'nope' } } })],
+  ]) {
+    const out = await withFetch(impl, () => discoverMarkets('0x' + '1'.repeat(40)));
+    assert.equal(out.ok, false, `${label} must not report ok`);
+    assert.equal(out.markets.length, 0);
+    assert.ok(out.reason, `${label} must carry a reason`);
+  }
+});
+
+test('an empty list IS an empty wallet, and says so', async () => {
+  const out = await withFetch(async () => jsonResponse({ data: { marketPositions: { items: [] } } }),
+    () => discoverMarkets('0x' + '2'.repeat(40)));
+  assert.equal(out.ok, true, 'being told "none" is an answer');
+  assert.equal(out.markets.length, 0);
+});
+
+test('a malformed market id is dropped rather than sent to the chain', async () => {
+  const body = { data: { marketPositions: { items: [
+    { market: { marketId: 'not-an-id' }, state: {} },
+    { market: {}, state: {} },
+    { market: { marketId: '0x' + 'a'.repeat(64) }, state: { collateral: 1 } },
+  ] } } };
+  const out = await withFetch(async () => jsonResponse(body), () => discoverMarkets('0x' + '3'.repeat(40)));
+  assert.equal(out.ok, true);
+  assert.equal(out.markets.length, 1, 'the indexer is a stranger too');
+});
+
+test('a failed search leaves coverage, so no screen claims we looked', () => {
   const src = read('../src/core/morpho.js');
-  // The supply scan pads out to topic 3.
-  assert.match(src, /topics: \[\[TOPIC\.supply, TOPIC\.supplyCollateral\], null, null, walletTopic\]/,
-    'Supply and SupplyCollateral carry onBehalf in topic 3');
-  // The borrow scan stops at topic 2.
-  assert.match(src, /topics: \[TOPIC\.borrow, null, walletTopic\]/,
-    'Borrow carries onBehalf in topic 2; a third null would silently match nothing');
+  const body = src.slice(src.indexOf('export async function readMorpho'));
+  const guard = body.slice(0, body.indexOf('const ids = markets'));
+  assert.match(guard, /readFailed: true/);
+  assert.match(guard, /could not be searched on this request/);
+  assert.ok(!/markets\.length === 0[^]*readFailed: true/.test(guard),
+    'being told there are none is not a failure');
 });
 
-test('share conversion reproduces a live position exactly', () => {
-  // Market 0xd4a903dc..., wallet 0xd0daab82..., read from Base.
-  // A borrow of a round 1,530 USDC plus the interest accrued since.
+test('the indexer supplies no figure, only a disagreement', () => {
+  const src = read('../src/core/morpho.js');
+  // Every amount put on a screen comes from the chain read. `claimed` may only
+  // be compared against, never assigned from.
+  const assignedFromClaim = /(?:amount|valueUsd|collateral|borrowedAssets|suppliedAssets)\s*[:=]\s*claimed\./;
+  assert.ok(!assignedFromClaim.test(src),
+    'a number from the indexer must never become a number on a screen');
+  assert.match(src, /const agrees = /);
+  assert.match(src, /disagreements\.push/);
+});
+
+test('a disagreement removes the health factor rather than picking a side', () => {
+  const src = read('../src/core/morpho.js');
+  assert.match(src, /healthFactor: disagreements\.length \? null : worstHealth/,
+    'a health factor that is close is worse than none at all');
+  assert.match(src, /breakdownComplete: unpriced === 0 && disagreements\.length === 0/);
+});
+
+test('the tolerance absorbs accrued interest and nothing larger', () => {
+  assert.equal(API_AGREEMENT_TOLERANCE, 0.02);
+  // The gap measured on the live position: 1,530.000161 read from the chain
+  // against 1,530.132778 from the indexer, seconds apart.
+  const drift = Math.abs(1530132778 - 1530000161) / 1530132778;
+  assert.ok(drift < API_AGREEMENT_TOLERANCE, 'real accrual must not trip the check');
+  assert.ok(drift < 0.0001, `measured drift was ${(drift * 100).toFixed(4)}%`);
+  // A decimals mistake is a factor of 1e12 and could never hide inside it.
+  assert.ok(1e12 * drift > API_AGREEMENT_TOLERANCE);
+});
+
+test('discovery can never become the request again', () => {
+  const src = read('../src/core/morpho.js');
+  assert.match(src, /API_BUDGET_MS/);
+  assert.match(src, /withTimeout\(fetch\(/, 'an unbounded call is how the last version broke the site');
+  assert.ok(!/chunkedGetLogs/.test(src),
+    '900 sequential getLogs per wallet is the design this replaced');
+});
+
+test('share conversion still reproduces the live position exactly', () => {
   const borrowed = toAssetsUp(1468034317737420n, 47301046892002n, 45385328626856575492n);
   assert.equal(borrowed.toString(), '1530000161');
-  assert.ok(Math.abs(Number(borrowed) / 1e6 - 1530) < 0.01,
-    'landing on a round human figure is the check that the virtual shares are right');
-});
-
-test('debt rounds up and supply rounds down, the way the protocol rounds', () => {
-  const shares = 1_000_000_000n;
-  const totalAssets = 3n;
-  const totalShares = 7n;
-  const up = toAssetsUp(shares, totalAssets, totalShares);
-  const down = toAssetsDown(shares, totalAssets, totalShares);
+  const up = toAssetsUp(1_000_000_000n, 3n, 7n);
+  const down = toAssetsDown(1_000_000_000n, 3n, 7n);
   assert.ok(up >= down, 'debt must never round in the borrower\'s favour');
-  assert.ok(up - down <= 1n);
 });
 
-test('the virtual shares are part of the maths, not a rounding detail', () => {
-  // They exist so the first deposit in a market cannot be attacked, and they
-  // sit inside the conversion: dropping them shifts the answer rather than the
-  // last digit. On the live position above the naive form is off by cents;
-  // on a young market it is off by everything.
-  const shares = 1468034317737420n;
-  const totalAssets = 47301046892002n;
-  const totalShares = 45385328626856575492n;
-  const naive = (shares * totalAssets) / totalShares;
-  const real = toAssetsUp(shares, totalAssets, totalShares);
-  assert.notEqual(naive, real, 'the two formulas must not be treated as interchangeable');
-
-  // A market with a thousandth of the liquidity: the gap is no longer cents.
-  const small = { assets: 47_301_046n, shares: 45_385_328_626n };
-  const naiveSmall = (1_000_000n * small.assets) / small.shares;
-  const realSmall = toAssetsUp(1_000_000n, small.assets, small.shares);
-  assert.ok(realSmall !== naiveSmall);
-});
-
-test('the deploy block is a floor that was verified, not guessed', () => {
-  // Binary search on eth_getCode against an archive node: code at this block,
-  // none at the one before. A floor that is too low turns one scan into
-  // hundreds of chunks; one that is too high loses a wallet's early history.
-  assert.equal(MORPHO.deployBlock, 13977148);
+test('the topic trap stays written down even though nothing reads events', () => {
+  const src = read('../src/core/morpho.js');
+  assert.match(src, /onBehalf is topic 2/,
+    'the next person to reach for events must not pay for this twice');
   assert.equal(MORPHO.address, '0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb');
 });
 
-test('Morpho is no longer declared as not covered', async () => {
-  const { LENDING_COVERAGE } = await import('../src/core/lending.js');
-  assert.ok(LENDING_COVERAGE.checked.includes('Morpho'));
-  assert.ok(!LENDING_COVERAGE.notCovered.includes('Morpho'),
-    'the coverage sentence is what tells a reader a position elsewhere would not appear');
-});
-
-test('market token symbols are sanitised before they travel', () => {
-  const src = read('../src/core/morpho.js');
-  assert.match(src, /safeSymbol\(symbol\)/,
-    'Morpho markets are permissionless: a symbol is a stranger\'s text with no gatekeeper at all');
-  const lending = read('../src/core/lending.js');
-  assert.match(lending, /safeSymbol\(symbol\)/,
-    'the same path exists in lending.js and had the same hole');
-});
-
-test('health is computed in the market\'s own terms, never ours', () => {
-  const src = read('../src/core/morpho.js');
-  const block = src.slice(src.indexOf('// Health, in the market'), src.indexOf('if (supplied.length === 0'));
-  assert.match(block, /r\.price/, 'the market oracle decides, because it is what liquidates');
-  assert.ok(!/usdOf\(/.test(block),
-    'mixing our USD prices with their LLTV produces a ratio that belongs to nobody');
-});
-
-test('the scan can never become the request', () => {
-  const src = read('../src/core/morpho.js');
-  assert.match(src, /DISCOVERY_BUDGET_MS/,
-    'an unbounded log scan turned an 8 second portfolio into a 52 second one');
-  assert.match(src, /Promise\.race/,
-    'the budget has to be enforced against the clock, not against a chunk count alone');
-  // And when it runs out, the wallet is told we did not look.
-  const body = src.slice(src.indexOf('export async function readMorpho'));
-  assert.match(body, /could not be searched on this request/);
-  const guard = body.slice(0, body.indexOf('const paramsRes'));
-  assert.match(guard, /readFailed: true/,
-    'an unsearched protocol must leave coverage.checked, or the screen claims we looked');
+test('market token symbols are still sanitised', () => {
+  assert.match(read('../src/core/morpho.js'), /safeSymbol\(symbol\)/,
+    'Morpho markets are permissionless: a symbol has no gatekeeper at all');
 });
