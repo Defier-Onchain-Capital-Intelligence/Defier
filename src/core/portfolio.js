@@ -165,6 +165,64 @@ export function dedupeClaimEvents(positions) {
 const RECONSTRUCTION_BUDGET = 25;
 
 /**
+ * What a reconstruction actually costs, measured on 0x065c8c2c… in production.
+ * Each row is the rebuild phase alone, with the rest of the build excluded.
+ *
+ *   concurrency 2:  1 → 13.3 s and 14.6 s     2 → 15.2 s
+ *                   4 → 32.3 s (2 rounds)     6 → 48.3 s (3 rounds)
+ *   concurrency 4:  4 → 21.3 s (1 round)      6 → 39.8 s      8 → 49.2 s
+ *   concurrency 6:  6 → 32.1 s (1 round)
+ *   concurrency 10: 10 → never finished, 504
+ *
+ * Two things fall out of that table, and both contradict what the first four
+ * data points suggested.
+ *
+ * A wider round is NOT free. One reconstruction costs ~14 s; six at once cost
+ * 32 s, not 14. There is real contention. But it is sublinear, so widening
+ * still wins: six positions take 48 s at concurrency 2 and 32 s at 6.
+ * Throughput peaks around four to six and gets worse after — at ten, nothing
+ * came back at all.
+ *
+ * And full coverage does not fit. Twenty reconstructions cannot be done in one
+ * sixty second request at any concurrency we measured. The shipped cap of 20
+ * was not ambitious, it was fiction: the request 504s, which loses every
+ * position rebuilt before the timeout, so a wallet that could have had six
+ * rebuilt got none.
+ */
+const REBUILD_CONCURRENCY = 6;
+
+/**
+ * The most reconstructions one request will attempt.
+ *
+ * Six is one round at the concurrency above, measured at 32.1 s. The rest of
+ * the build ranged from 6.5 s warm to 17.1 s on a cold instance, so the worst
+ * case lands near 49 s inside a 60 s limit.
+ *
+ * This is a ceiling, not a target. The deadline below is what actually decides
+ * how many get done, and on a wallet whose reconstructions are cheaper it will
+ * do all six well within the budget.
+ */
+const REBUILD_CAP = 6;
+
+/**
+ * No round may START after this point in the build.
+ *
+ * The route has 60 seconds. Fifty leaves room for the summary, the exposure
+ * maths and the response itself, which together ran about 1.4 s.
+ */
+const REBUILD_DEADLINE_MS = 50_000;
+
+/**
+ * Expected cost of the first round, before one has been timed.
+ *
+ * Only ever used for the decision to start round one. After that the real
+ * measured cost of the previous round replaces it, which is the point: a
+ * constant calibrated on one wallet says nothing about another, and the RPC is
+ * not equally fast at every hour.
+ */
+const ROUND_COST_PRIOR_MS = 33_000;
+
+/**
  * Newest first, per venue, before the budget is applied.
  *
  * Discovery returns oldest first — Alchemy's transfer history is ascending and
@@ -538,43 +596,68 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
   //    Skipping them is what makes a wallet with years of history report zero fees
   //    claimed, so they are rebuilt from the chain rather than quietly dropped.
   let burnedRebuilt = 0;
+  /** True when the rebuild stopped because time ran out, not because it finished. */
+  let rebuildStoppedForTime = false;
   if (deep && burned.length) {
-    // 20 is the shipped cap. maxRebuild lowers it for measurement only: the
-    // deep build overruns the route's sixty seconds on a heavy wallet, and a
-    // request that times out returns no timings at all, so the cost per
-    // reconstruction can only be read from runs that finish.
-    const rebuildCap = maxRebuild == null ? 20 : Math.max(0, Math.min(20, maxRebuild));
-    // 2 is what ships. The measurements say a round of two costs the same as a
-    // round of one — about sixteen seconds either way — so the limit is the
-    // latency of a single reconstruction, not contention between them, and
-    // widening the round should be close to free. "Should be" is why this is
-    // adjustable: the claim gets measured before it gets shipped.
+    const rebuildCap = maxRebuild == null ? REBUILD_CAP : Math.max(0, Math.min(REBUILD_CAP, maxRebuild));
     const rebuildConc = rebuildConcurrency == null
-      ? 2
+      ? REBUILD_CONCURRENCY
       : Math.max(1, Math.min(12, rebuildConcurrency));
-    const rebuilt = await batchedRequests(burned.slice(0, rebuildCap), async (item) => {
-      // Everything in here is wrapped, because batchedRequests reports a thrown
-      // error as a rejected promise and the loop below only reads fulfilled
-      // ones. A throw therefore vanished completely: no position, no reason, no
-      // trace entry. The rebuild failed silently for exactly that reason and it
-      // took a diagnostic endpoint to notice the absence of an error.
-      try {
-        return await rebuildOne(item);
-      } catch (err) {
-        trace('burnedRebuildFailed', {
-          tokenId: item.tokenId,
-          reason: `threw: ${String(err?.message || err).slice(0, 160)}`,
-        });
-        return null;
-      }
-    }, rebuildConc, 150);
 
-    for (const r of rebuilt) {
-      if (r.status === 'fulfilled' && r.value) { positions.push(r.value); burnedRebuilt += 1; }
-      else if (r.status === 'rejected') {
-        trace('burnedRebuildFailed', { reason: `rejected: ${String(r.reason).slice(0, 160)}` });
+    const queue = burned.slice(0, rebuildCap);
+    // What one round is expected to cost, before any has been timed. Replaced
+    // by the real figure after the first round, which is the point: a prior
+    // guessed from one wallet is worthless on another, and the RPC's mood
+    // changes hour to hour.
+    let roundCost = ROUND_COST_PRIOR_MS;
+    let index = 0;
+
+    while (index < queue.length) {
+      const remaining = REBUILD_DEADLINE_MS - (Date.now() - t0);
+      // Stop BEFORE a round that will not finish. A round started with eight
+      // seconds left does not produce a partial answer; it produces a 504, and
+      // a 504 loses every position rebuilt in the rounds before it. Refusing
+      // the round is what keeps the work already done.
+      if (remaining < roundCost) {
+        rebuildStoppedForTime = true;
+        trace('rebuildStoppedForTime', {
+          done: index, left: queue.length - index, remainingMs: Math.round(remaining),
+          expectedRoundMs: Math.round(roundCost),
+        });
+        break;
       }
+
+      const chunk = queue.slice(index, index + rebuildConc);
+      const startedAt = Date.now();
+      const settled = await Promise.allSettled(chunk.map(async (item) => {
+        // Wrapped, because a thrown error arrives here as a rejected promise
+        // and the loop below only reads fulfilled ones. A throw therefore
+        // vanished completely: no position, no reason, no trace entry. The
+        // rebuild failed silently for exactly that reason, and it took a
+        // diagnostic endpoint to notice the absence of an error.
+        try {
+          return await rebuildOne(item);
+        } catch (err) {
+          trace('burnedRebuildFailed', {
+            tokenId: item.tokenId,
+            reason: `threw: ${String(err?.message || err).slice(0, 160)}`,
+          });
+          return null;
+        }
+      }));
+      roundCost = Math.max(Date.now() - startedAt, 1000);
+      trace('rebuildRound', { size: chunk.length, ms: Math.round(roundCost) });
+
+      for (const r of settled) {
+        if (r.status === 'fulfilled' && r.value) { positions.push(r.value); burnedRebuilt += 1; }
+        else if (r.status === 'rejected') {
+          trace('burnedRebuildFailed', { reason: `rejected: ${String(r.reason).slice(0, 160)}` });
+        }
+      }
+      index += chunk.length;
     }
+
+    if (!rebuildStoppedForTime && queue.length < burned.length) rebuildStoppedForTime = true;
 
     async function rebuildOne(item) {
       // A burned position found through the Sickle belongs to the Sickle, and
@@ -712,6 +795,10 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
     burnedFound: burned.length,
     burnedRebuilt,
     burnedMissed: Math.max(burned.length - burnedRebuilt, 0),
+    /** True when the rebuild ran out of time rather than out of positions.
+     *  "Could not be rebuilt" and "we ran out of seconds" are different facts
+     *  about our coverage, and only the second one gets better by coming back. */
+    rebuildStoppedForTime,
     /** True when we could not search this wallet's whole history, so the set of
      *  positions found is a floor rather than the answer. */
     discoveryIncomplete,
@@ -728,12 +815,19 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
     // is most page loads. Saying we tried and failed, when we never tried,
     // misdescribes our own coverage in the one sentence meant to describe it.
     const noun = historyGap.burnedMissed === 1 ? 'position' : 'positions';
+    const tail = 'so the all time figures below cover less than this wallet has actually done.';
     warnings.push(
-      historyGap.deep
-        ? `${historyGap.burnedMissed} closed ${noun} could not be rebuilt, `
-          + 'so the all time figures below cover less than this wallet has actually done.'
-        : `${historyGap.burnedMissed} closed ${noun} are not loaded on this view, `
-          + 'so the all time figures below cover less than this wallet has actually done.',
+      // eslint-disable-next-line no-nested-ternary
+      !historyGap.deep
+        ? `${historyGap.burnedMissed} closed ${noun} are not loaded on this view, ${tail}`
+        : historyGap.rebuildStoppedForTime
+          // Not a failure. Each reconstruction is several chunked log scans and
+          // the request has sixty seconds; this wallet has more history than
+          // fits in one. Saying "could not be rebuilt" would blame the chain
+          // for our own budget.
+          ? `${historyGap.burnedMissed} closed ${noun} were not rebuilt on this request — `
+            + `there was not enough time to read them all, ${tail}`
+          : `${historyGap.burnedMissed} closed ${noun} could not be rebuilt, ${tail}`,
     );
   }
   const open = positions.filter((p) => !p.closed);

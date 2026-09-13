@@ -481,6 +481,10 @@ export interface Portfolio {
     burnedFound: number;
     burnedRebuilt: number;
     burnedMissed: number;
+    /** True when the rebuild ran out of seconds rather than out of positions.
+     *  Different fact from "could not be rebuilt", and the only one of the two
+     *  that a second visit can improve. */
+    rebuildStoppedForTime?: boolean;
     discoveryIncomplete: boolean;
     deep: boolean;
   };
