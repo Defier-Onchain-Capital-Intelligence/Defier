@@ -44,8 +44,7 @@
  */
 import { ethers } from 'ethers';
 import { MULTICALL3_ADDR, MULTICALL3_ABI, ERC20_ABI } from './constants.js';
-import { getProvider, getLogsProvider, withTimeout } from './providers.js';
-import { chunkedGetLogs } from './providers.js';
+import { getLogsProvider, withTimeout, chunkedGetLogs } from './providers.js';
 import { classify } from './exposure.js';
 import { fetchTokenPricesBatch } from './prices.js';
 import { safeSymbol } from './untrusted.js';

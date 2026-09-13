@@ -314,9 +314,13 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
   const defaultFactory = FACTORY_ADDRS['aerodrome']?.[CHAIN];
 
   const stakedEnriched = [];
+  const stakedQueue = [];
   for (const ref of stakedRefs) {
     if (seen.has(ref.tokenId)) continue;
     seen.add(ref.tokenId);
+    stakedQueue.push(ref);
+  }
+  const stakedEnrichResults = await batchedRequests(stakedQueue, async (ref) => {
     try {
       const enriched = await withTimeout(
         _enrichPosition(
@@ -327,12 +331,18 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
         ),
         25000
       );
-      if (enriched) stakedEnriched.push({ enriched, ref });
-      else trace('stakedEnrichNull', ref.tokenId);
+      return { ref, enriched, error: null };
     } catch (err) {
-      trace('stakedEnrichThrew', { tokenId: ref.tokenId, error: String(err?.message || err).slice(0, 160) });
-      warnings.push(`Staked position ${ref.tokenId} could not be read.`);
+      return { ref, enriched: null, error: String(err?.message || err).slice(0, 160) };
     }
+  }, 4, 60);
+  for (const r of stakedEnrichResults) {
+    if (r.status !== 'fulfilled') continue;
+    const { ref, enriched, error } = r.value;
+    if (enriched) { stakedEnriched.push({ enriched, ref }); continue; }
+    if (error === null) { trace('stakedEnrichNull', ref.tokenId); continue; }
+    trace('stakedEnrichThrew', { tokenId: ref.tokenId, error });
+    warnings.push(`Staked position ${ref.tokenId} could not be read.`);
   }
 
   mark('staked');
@@ -360,8 +370,22 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
     const everOwned = perSource.flat();
     trace('everOwned', everOwned);
     const unknown = everOwned.filter((t) => !seen.has(t.tokenId));
+    const toEnrich = [];
     for (const item of newestFirst(unknown).slice(0, RECONSTRUCTION_BUDGET)) {
       seen.add(item.tokenId);
+      toEnrich.push(item);
+    }
+    // These positions have nothing to do with each other, and this loop used
+    // to await each one before starting the next. On this wallet that cost 143
+    // milliseconds, because every unknown id turned out to be burned and a
+    // burned one reverts at once — which is exactly why it went unnoticed. On a
+    // wallet whose old positions are still alive, each is a full enrichment.
+    //
+    // The queue order is the one that matters: `burned` is consumed newest
+    // first by the reconstruction budget, and batchedRequests returns results
+    // in the order they were queued, so widening the round changes the timing
+    // and nothing else.
+    const enrichResults = await batchedRequests(toEnrich, async (item) => {
       const proto = item.protocol || 'aerodrome';
       const protoNfpm = item.nfpm || NFPM_ADDRS[proto]?.[CHAIN];
       const protoFactory = item.factory || FACTORY_ADDRS[proto]?.[CHAIN];
@@ -370,21 +394,30 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
           _enrichPosition(CHAIN, proto, protoNfpm, protoFactory, item.tokenId, provider, proto === 'aerodrome', wallet),
           25000
         );
-        if (enriched) recovered.push({ enriched, ref: { tokenId: item.tokenId, gaugeAddress: null, nfpmAddress: protoNfpm }, owner: item.currentOwner });
-        else trace('enrichReturnedNull', item.tokenId);
+        return { item, proto, protoNfpm, enriched, error: null };
       } catch (err) {
-        const message = String(err?.message || err);
-        // positions() reverting with "ID" means the NFT was burned: the position was
-        // closed and destroyed. That is a fact about the wallet, not a failure.
-        if (message.includes('"ID"')) {
-          // The NFT was destroyed after the position was fully closed. There is
-          // no capital and no history to show, so it is a diagnostic fact, not
-          // something to put in front of someone looking at their money.
-          trace('burnedTokenId', item.tokenId);
-          burned.push({ tokenId: item.tokenId, protocol: proto, nfpm: protoNfpm });
-        } else {
-          trace('enrichThrew', { tokenId: item.tokenId, error: message });
-        }
+        return { item, proto, protoNfpm, enriched: null, error: String(err?.message || err) };
+      }
+    }, 4, 60);
+
+    for (const r of enrichResults) {
+      if (r.status !== 'fulfilled') continue;
+      const { item, proto, protoNfpm, enriched, error } = r.value;
+      if (enriched) {
+        recovered.push({ enriched, ref: { tokenId: item.tokenId, gaugeAddress: null, nfpmAddress: protoNfpm }, owner: item.currentOwner });
+        continue;
+      }
+      if (error === null) { trace('enrichReturnedNull', item.tokenId); continue; }
+      // positions() reverting with "ID" means the NFT was burned: the position was
+      // closed and destroyed. That is a fact about the wallet, not a failure.
+      if (error.includes('"ID"')) {
+        // The NFT was destroyed after the position was fully closed. There is
+        // no capital and no history to show, so it is a diagnostic fact, not
+        // something to put in front of someone looking at their money.
+        trace('burnedTokenId', item.tokenId);
+        burned.push({ tokenId: item.tokenId, protocol: proto, nfpm: protoNfpm });
+      } else {
+        trace('enrichThrew', { tokenId: item.tokenId, error });
       }
     }
   } catch (_) {
@@ -409,6 +442,25 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
     sickle = await resolveSickle(wallet);
     if (sickle) {
       trace('sickle', sickle);
+
+      // Started here, awaited far below. Measured at 2.3 s, the most expensive
+      // sub-phase of this pass, and it depends on nothing but the Sickle's
+      // address — so it has no reason to wait for the held scan and the staked
+      // scan to finish first. Kicking it off now overlaps it with both.
+      const vfatSources = [
+        ...AERODROME_CL_DEPLOYMENTS.map((d) => ({ protocol: 'aerodrome', nfpm: d.nfpm, factory: d.factory })),
+        { protocol: 'uniswap-v3', nfpm: NFPM_ADDRS['uniswap-v3']?.[CHAIN], factory: FACTORY_ADDRS['uniswap-v3']?.[CHAIN] },
+      ].filter((sourceItem) => sourceItem.nfpm);
+      const vfatEverOwnedPromise = Promise.all(vfatSources.map(async (sourceItem) => {
+        const owned = await getWalletTokenIdsFromLogs(sickle, sourceItem.protocol, sourceItem.nfpm).catch(() => []);
+        const list = Array.isArray(owned) ? owned : (owned?.items ?? []);
+        if (!Array.isArray(owned) && owned?.incomplete) discoveryIncomplete = true;
+        return list.map((t) => ({ ...t, protocol: sourceItem.protocol, nfpm: sourceItem.nfpm, factory: sourceItem.factory }));
+      })).then((perSource) => perSource.flat());
+      // Nothing may reject on its own timetable: this promise is awaited later,
+      // and an unhandled rejection in between takes the process with it.
+      vfatEverOwnedPromise.catch(() => []);
+
       const sickleHeld = await scanWalletPositions(sickle, { chains: [CHAIN] });
       mark('vfat.held');
       for (const p of sickleHeld) {
@@ -423,10 +475,18 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
       const sickleStaked = await getStakedTokenIds(sickle, { extraTokens: [...extraTokens, ...sickleTokens], diag })
         .catch(() => []);
       mark('vfat.stakedIds');
+      // One await per position, in a row, for positions that have nothing to do
+      // with each other. The dedupe still happens in order, before any request
+      // goes out, so the set of positions is identical either way.
+      const stakedToEnrich = [];
       for (const ref of sickleStaked) {
         if (seen.has(ref.tokenId)) continue;
         seen.add(ref.tokenId);
-        const enriched = await withTimeout(
+        stakedToEnrich.push(ref);
+      }
+      const stakedResults = await batchedRequests(stakedToEnrich, async (ref) => ({
+        ref,
+        enriched: await withTimeout(
           _enrichPosition(
             CHAIN, 'aerodrome',
             ref.nfpmAddress || defaultNfpm,
@@ -434,13 +494,15 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
             ref.tokenId, provider, true, sickle,
           ),
           25000,
-        ).catch(() => null);
-        if (enriched) {
-          vfatCandidates.push({
-            p: enriched, staked: true, gaugeAddress: ref.gaugeAddress,
-            nfpm: ref.nfpmAddress || defaultNfpm, owner: sickle, via: 'vfat',
-          });
-        }
+        ).catch(() => null),
+      }), 4, 60);
+      for (const r of stakedResults) {
+        if (r.status !== 'fulfilled' || !r.value.enriched) continue;
+        const { ref, enriched } = r.value;
+        vfatCandidates.push({
+          p: enriched, staked: true, gaugeAddress: ref.gaugeAddress,
+          nfpm: ref.nfpmAddress || defaultNfpm, owner: sickle, via: 'vfat',
+        });
       }
       mark('vfat.stakedEnrich');
       // Closed vfat positions. The completeness pass above walks the NFTs this
@@ -448,22 +510,22 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
       // it was minted straight to the Sickle. Without this the same pass over
       // the Sickle, a vfat user's lifetime report would quietly contain only
       // the positions still open, while calling itself all time.
-      const vfatSources = [
-        ...AERODROME_CL_DEPLOYMENTS.map((d) => ({ protocol: 'aerodrome', nfpm: d.nfpm, factory: d.factory })),
-        { protocol: 'uniswap-v3', nfpm: NFPM_ADDRS['uniswap-v3']?.[CHAIN], factory: FACTORY_ADDRS['uniswap-v3']?.[CHAIN] },
-      ].filter((sourceItem) => sourceItem.nfpm);
-
-      const vfatEverOwned = (await Promise.all(vfatSources.map(async (sourceItem) => {
-        const owned = await getWalletTokenIdsFromLogs(sickle, sourceItem.protocol, sourceItem.nfpm).catch(() => []);
-        const list = Array.isArray(owned) ? owned : (owned?.items ?? []);
-        if (!Array.isArray(owned) && owned?.incomplete) discoveryIncomplete = true;
-        return list.map((t) => ({ ...t, protocol: sourceItem.protocol, nfpm: sourceItem.nfpm, factory: sourceItem.factory }));
-      }))).flat();
+      // Started before the held scan, so by now it has usually finished.
+      const vfatEverOwned = await vfatEverOwnedPromise.catch(() => []);
 
       mark('vfat.everOwned');
       const vfatUnknown = vfatEverOwned.filter((t) => !seen.has(t.tokenId));
+      const unknownToEnrich = [];
       for (const item of newestFirst(vfatUnknown).slice(0, RECONSTRUCTION_BUDGET)) {
         seen.add(item.tokenId);
+        unknownToEnrich.push(item);
+      }
+      // Order matters here in a way it did not above: a burned position is
+      // found by its enrichment reverting, and `burned` feeds the
+      // reconstruction queue, which is processed newest first. So the results
+      // are walked in the order they were queued rather than the order they
+      // happen to come back in.
+      const unknownResults = await batchedRequests(unknownToEnrich, async (item) => {
         const proto = item.protocol || 'aerodrome';
         const protoNfpm = item.nfpm || NFPM_ADDRS[proto]?.[CHAIN];
         const protoFactory = item.factory || FACTORY_ADDRS[proto]?.[CHAIN];
@@ -472,18 +534,25 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
             _enrichPosition(CHAIN, proto, protoNfpm, protoFactory, item.tokenId, provider, proto === 'aerodrome', sickle),
             25000,
           );
-          if (enriched) {
-            vfatCandidates.push({
-              p: enriched, staked: false, gaugeAddress: undefined,
-              nfpm: protoNfpm, owner: sickle, via: 'vfat',
-            });
-          }
+          return { item, proto, protoNfpm, enriched, burned: false };
         } catch (err) {
           // Burned means the position was closed and destroyed. A fact about
           // the wallet, recorded the same way as for a directly held one.
-          if (String(err?.message || err).includes('"ID"')) {
-            burned.push({ tokenId: item.tokenId, protocol: proto, nfpm: protoNfpm, owner: sickle });
-          }
+          const isBurned = String(err?.message || err).includes('"ID"');
+          return { item, proto, protoNfpm, enriched: null, burned: isBurned };
+        }
+      }, 4, 60);
+
+      for (const r of unknownResults) {
+        if (r.status !== 'fulfilled') continue;
+        const { item, proto, protoNfpm, enriched, burned: wasBurned } = r.value;
+        if (enriched) {
+          vfatCandidates.push({
+            p: enriched, staked: false, gaugeAddress: undefined,
+            nfpm: protoNfpm, owner: sickle, via: 'vfat',
+          });
+        } else if (wasBurned) {
+          burned.push({ tokenId: item.tokenId, protocol: proto, nfpm: protoNfpm, owner: sickle });
         }
       }
 
