@@ -397,6 +397,12 @@ export interface PortfolioSummary {
   tokensValueUsd: number;
   stocksValueUsd: number;
   lendingNetUsd: number;
+  /** Everything owned, including anything posted as collateral. */
+  assetsUsd: number;
+  /** Everything owed. */
+  debtUsd: number;
+  /** assetsUsd − debtUsd. Equal to totalValueUsd; named so the parts can be shown. */
+  netUsd: number;
   lpNetPnlUsd: number;          // sum of netPnlUsd over open + closed positions
   lpVsHodlUsd: number;          // sum of lpVsHodlUsd
   feesTotalUsd: number;

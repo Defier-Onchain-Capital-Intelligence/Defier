@@ -43,11 +43,38 @@ export function PortfolioHome({ address }: { address: string }) {
     <div className="space-y-4">
       <header className="flex items-center justify-between">
         <div>
-          <Label>Your capital on Base</Label>
-          <p className="hero-num mt-1">{usd(summary.totalValueUsd)}</p>
+          <Label>{debt.hasDebt ? 'Net on Base' : 'Your capital on Base'}</Label>
+          <p className="hero-num mt-1">{usd(summary.netUsd)}</p>
         </div>
         <WalletBadge address={address} />
       </header>
+
+      {/*
+        A netted figure hides the shape of a leveraged wallet. $265,000 posted
+        against $191,000 borrowed nets to $74,000, which reads like a small
+        wallet rather than a large one carrying most of itself in debt — and
+        only one of those can be liquidated. So when there is debt, the parts
+        are named. With no debt there is nothing to split and this stays out of
+        the way.
+      */}
+      {debt.hasDebt ? (
+        <Card>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <Label>Assets</Label>
+              <p className="mt-1 font-semibold tnum">{usd(summary.assetsUsd)}</p>
+            </div>
+            <div>
+              <Label>Debt</Label>
+              <p className="mt-1 font-semibold tnum text-loss">{usd(summary.debtUsd)}</p>
+            </div>
+            <div>
+              <Label>Net</Label>
+              <p className="mt-1 font-semibold tnum">{usd(summary.netUsd)}</p>
+            </div>
+          </div>
+        </Card>
+      ) : null}
 
       <Card>
         <p className="text-[0.9375rem] leading-relaxed">{summary.headline}</p>

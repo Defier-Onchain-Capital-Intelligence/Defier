@@ -958,12 +958,14 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
   // describes only the deployed half of the wallet and reads as if the rest
   // did not exist.
   const positionTokens = positions.flatMap((p) => [p.token0.address, p.token1.address]);
+  mark('beforeTail');
   const [tokenResult, stockResult, lendingResult] = await Promise.allSettled([
     getTokenHoldings(wallet, positionTokens),
     getStockHoldings(wallet),
     getLendingPositions(wallet),
   ]);
 
+  mark('tokensStocksLending');
   const plainTokens = tokenResult.status === 'fulfilled' ? tokenResult.value : [];
   if (tokenResult.status !== 'fulfilled') {
     warnings.push('Wallet token balances could not be read, so this total is missing whatever is sitting in the wallet.');
@@ -1003,6 +1005,12 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
   const stocksValueUsd = stocks.reduce((a, h) => a + (h.valueUsd || 0), 0);
   const tokensValueUsd = plainTokens.reduce((a, h) => a + (h.valueUsd || 0), 0);
   const lendingNetUsd = lending.reduce((a, l) => a + (l.netValueUsd || 0), 0);
+  // Split rather than netted, so the home screen can name the parts. See the
+  // comment on assetsUsd below for why the netted figure alone is misleading.
+  const lendingSuppliedUsd = lending.reduce(
+    (a, l) => a + (l.supplied || []).reduce((b, x) => b + (x.valueUsd || 0), 0), 0,
+  );
+  const lendingDebtUsd = lending.reduce((a, l) => a + (l.totalDebtUsd || 0), 0);
 
   const summary = {
     totalValueUsd: lpValueUsd + tokensValueUsd + stocksValueUsd + lendingNetUsd,
@@ -1010,6 +1018,23 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
     tokensValueUsd,
     stocksValueUsd,
     lendingNetUsd,
+    /**
+     * The three figures a leveraged wallet is actually made of.
+     *
+     * `totalValueUsd` has always been the net one: collateral counts, debt is
+     * subtracted, and the two cancel invisibly. Someone with $265,000 posted
+     * against $191,000 borrowed reads $74,000 and cannot tell whether that is a
+     * small wallet or a large one carrying most of itself in debt. Those are
+     * not the same position and one of them can be liquidated.
+     *
+     * assetsUsd is everything owned, INCLUDING what is posted as collateral —
+     * collateral is not spent, it is held somewhere with a lien on it.
+     * netUsd is assetsUsd − debtUsd, and equals totalValueUsd. Nothing changes
+     * in what we report; what changes is that the parts are nameable.
+     */
+    assetsUsd: lpValueUsd + tokensValueUsd + stocksValueUsd + lendingSuppliedUsd,
+    debtUsd: lendingDebtUsd,
+    netUsd: lpValueUsd + tokensValueUsd + stocksValueUsd + lendingSuppliedUsd - lendingDebtUsd,
     lpNetPnlUsd,
     lpVsHodlUsd,
     feesTotalUsd,
