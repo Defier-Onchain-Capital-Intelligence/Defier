@@ -36,14 +36,23 @@ const REPORT_ONLY_CSP = [
  * here reported NOTHING on any screen, which is the only reason it is safe to
  * close. See SECURITY.md section 10 for the evidence.
  *
- * Deliberately absent, and each for its own reason:
+ * connect-src is now closed too, on a list that was earned rather than
+ * assumed. Six screens gave three origins; actually CONNECTING a wallet gave a
+ * fourth, api.coinbase.com, which no amount of browsing would have revealed —
+ * which is exactly why it was held back until somebody connected one. Two more
+ * come from reading the wallet SDK's own constants rather than waiting to be
+ * surprised by them: keys.coinbase.com and rpc.wallet.coinbase.com, reachable
+ * in flows nobody exercised here.
  *
- *   connect-src and default-src — default-src is the fallback for connect-src,
- *   so enforcing it enforces that too. The four origins the app needs are
- *   known, but the wallet CONNECTION flow and the app inside Base App were not
- *   exercised, and either could need a fifth. Closing this on a list that is
- *   probably complete is how you find out it was not, from a user who cannot
- *   connect their wallet. It stays report-only until someone connects one.
+ * What is NOT in that list is the point of it. cca-lite.coinbase.com, the
+ * Amplitude endpoint the wallet SDK reports to, is left out deliberately: the
+ * browser blocks it, which is the one lever we have, since the SDK flag that
+ * would switch it off is unreachable behind OnchainKit's connector. That this
+ * is safe is not a hope — Alberto's own ad blocker was already blocking it
+ * during testing and the SDK swallowed the failure ("Analytics SDK: Failed to
+ * fetch") with the app working normally throughout.
+ *
+ * Deliberately absent:
  *
  *   script-src — needs a per-request nonce, because the browser's own hashes
  *   differ from page to page. That is middleware, and middleware that fails to
@@ -69,6 +78,21 @@ const ENFORCED_CSP = [
   // Next.js ships inline style attributes and there is no version of this app
   // without them. Saying so is better than a directive that pretends otherwise.
   "style-src 'self' 'unsafe-inline'",
+  // The directive that actually matters for a product that reads other
+  // people's money. The realistic bad day here is not an injected script, it
+  // is a compromised dependency — and this is what stops one sending what it
+  // read to somewhere we never named, even while its code runs.
+  [
+    "connect-src 'self'",
+    'https://api.developer.coinbase.com',  // OnchainKit's Base RPC
+    'https://api.coinbase.com',            // seen only when a wallet connects
+    'https://keys.coinbase.com',           // Coinbase Keys, from the SDK's constants
+    'https://rpc.wallet.coinbase.com',     // ditto
+    'https://ethereum.reth.rs',            // wagmi on mainnet, for ENS names
+  ].join(' '),
+  // Safe to state now that connect-src is explicit: default-src is its
+  // fallback, so this would have closed connect-src by the back door.
+  "default-src 'self'",
   'upgrade-insecure-requests',
 ].join('; ');
 

@@ -93,22 +93,27 @@ verifica en producción tras el deploy, no en el build.
 La política va en dos mitades, y la división es deliberada.
 
 **Se aplica hoy** (`Content-Security-Policy`): `object-src 'none'`,
-`base-uri 'self'`, `form-action 'self'`. Ninguna puede romper una conexión de
-wallet, porque nada legítimo en esta app las usa. `base-uri` impide que un
-`<base>` inyectado reapunte todas las URLs relativas de la página al servidor
-de otro; `form-action` impide que un formulario mande una dirección de wallet
-fuera del sitio.
+`base-uri 'self'`, `form-action 'self'`, `img-src`, `font-src`, `frame-src`,
+`worker-src`, `style-src`, `connect-src`, `default-src 'self'` y
+`upgrade-insecure-requests`. Cada una se cerró sobre lo que el navegador
+reportó, no sobre lo que suponíamos (§10 y §11).
 
-**Solo reporta** (`Content-Security-Policy-Report-Only`): el resto, escrito tan
-estricto como queremos terminar. Los orígenes que necesita el SDK de wallet
-están dentro del SDK, no en nuestro código — buscarlos con grep solo encuentra
-los hosts que llamamos nosotros. Adivinar el resto y aplicar la adivinanza es
-exactamente el error que esta forma evita. Las violaciones van a
-`/api/csp-report`.
+`base-uri` impide que un `<base>` inyectado reapunte todas las URLs relativas
+de la página al servidor de otro; `form-action` impide que un formulario mande
+una dirección de wallet fuera del sitio. `connect-src` es la que de verdad
+importa en un producto que lee el dinero de otra gente: el mal día realista no
+es un script inyectado, es una dependencia comprometida, y esta es la directiva
+que impide que esa dependencia mande lo que leyó a un sitio que nunca nombramos
+— aunque su código llegue a ejecutarse.
 
-**Cómo se cierra**: leer los reportes de tráfico real, añadir únicamente los
-orígenes que demuestren ser necesarios, y mover la política de report-only a
-aplicada. No antes.
+**Solo reporta** (`Content-Security-Policy-Report-Only`): `script-src 'self'`,
+que sigue midiéndose en vez de olvidarse. Necesita un nonce por request (§10),
+o sea un `middleware.ts`, y un middleware que se salte un script deja la página
+en blanco. Las violaciones van a `/api/csp-report`.
+
+**Cómo se cierra lo que queda**: igual que se cerró el resto — leer los reportes
+de tráfico real, añadir únicamente los orígenes que demuestren ser necesarios, y
+mover la directiva a la mitad aplicada. No antes.
 
 `/api/csp-report` no guarda nada: limita por IP, capa el cuerpo, corta a 10
 reportes por POST y **reduce toda URL a origen + ruta antes de escribirla**,
@@ -202,3 +207,46 @@ pantallas, y ninguna violación de `object-src`, `base-uri` ni `form-action`.
 **Lo que esta pasada NO cubre**, y hay que medirlo antes de aplicar: el flujo de
 conexión de wallet (abrir el modal, conectar de verdad) y la app dentro de Base
 App. Ambos pueden pedir orígenes que aquí no aparecieron.
+
+## 11. Cerrar `connect-src` y `default-src` (14 sep 2026)
+
+Estas dos quedaron fuera en §10 por un motivo concreto: `default-src` es el
+fallback de `connect-src`, así que aplicarla aplicaba también la otra, y la
+lista de orígenes que salía de recorrer pantallas estaba **incompleta sin
+saberlo**. Cerrarla ahí habría roto conectar wallet para todo el mundo, y nos
+habríamos enterado por un usuario que no puede entrar.
+
+**Lo que faltaba, y cómo apareció.** Recorrer seis pantallas dio tres orígenes.
+**Conectar un wallet de verdad dio un cuarto**, `https://api.coinbase.com`, seis
+violaciones, que ninguna cantidad de navegar habría revelado. Dos más salen de
+leer las constantes del propio SDK en vez de esperar a que nos sorprendan:
+`https://keys.coinbase.com` y `https://rpc.wallet.coinbase.com`, alcanzables en
+flujos que nadie ejercitó aquí.
+
+| origen | de dónde salió |
+|---|---|
+| `https://api.developer.coinbase.com` | reportado navegando (OnchainKit, RPC de Base) |
+| `https://ethereum.reth.rs` | reportado navegando (wagmi contra mainnet, ENS) |
+| `https://api.coinbase.com` | **reportado solo al conectar un wallet** |
+| `https://keys.coinbase.com` | constantes del SDK de wallet |
+| `https://rpc.wallet.coinbase.com` | constantes del SDK de wallet |
+
+**Lo que quedó fuera a propósito es el punto de todo esto.**
+`https://cca-lite.coinbase.com`, el endpoint de Amplitude al que reporta el SDK
+de wallet (§10, punto 2), **no está en la lista**. El navegador es la única
+palanca que tenemos, porque el flag `preference.telemetry` es inalcanzable
+detrás del conector de OnchainKit. Y que bloquearlo sea seguro **no es una
+esperanza**: el ad blocker de Alberto ya lo estaba bloqueando durante la prueba
+— `ERR_BLOCKED_BY_CLIENT` — y el SDK se tragó el fallo (*"Analytics SDK:
+TypeError: Failed to fetch"*) con la app funcionando normal todo el rato. Esto
+convierte la divulgación de PRIVACY.md en algo que además se cumple.
+
+**Lo que hay que verificar después del deploy**, porque medir en local no lo
+sustituye: conectar un wallet otra vez con la política aplicada, y abrir la app
+dentro de Base App. Si algo revienta, aparece en consola como violación de
+`connect-src` con el origen exacto que falta, y añadirlo es una línea.
+
+**Qué lo vigila**: `test/cspReport.test.mjs` (14 tests) comprueba que cada uno
+de esos cinco orígenes sigue en la política — quitar uno rompe un flujo real —
+y que `cca-lite.coinbase.com` sigue **fuera**, para que nadie lo añada más
+adelante "para que no salga el error en consola".

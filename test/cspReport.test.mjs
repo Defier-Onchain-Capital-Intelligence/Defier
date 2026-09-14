@@ -20,6 +20,19 @@ import { readFileSync } from 'node:fs';
 const route = readFileSync(new URL('../src/app/api/csp-report/route.ts', import.meta.url), 'utf8');
 const config = readFileSync(new URL('../next.config.js', import.meta.url), 'utf8');
 
+/**
+ * The body of one policy constant.
+ *
+ * Matching to the first `]` broke the moment a directive was built from a
+ * nested array, so this reads to the `.join` that closes the constant instead.
+ */
+function policy(name) {
+  const start = config.indexOf(`const ${name} = [`);
+  if (start < 0) return '';
+  const end = config.indexOf("].join('; ')", start);
+  return config.slice(start, end);
+}
+
 /** The scrubber, lifted exactly as the route defines it. */
 function scrub(value) {
   if (typeof value !== 'string' || !value) return null;
@@ -71,38 +84,60 @@ test('a failing report endpoint is invisible to someone using the site', () => {
 });
 
 test('nothing is enforced that was not measured first', () => {
-  const enforced = config.match(/const ENFORCED_CSP = \[([^\]]*)\]/);
+  const enforced = policy('ENFORCED_CSP');
   assert.ok(enforced, 'an enforced policy must exist');
   // These reported zero violations across six screens, so closing them costs
   // nothing. img-src carries the one host that did report: token logos.
   for (const measured of ['object-src', 'base-uri', 'form-action',
     'img-src', 'font-src', 'frame-src', 'worker-src', 'style-src']) {
-    assert.ok(enforced[1].includes(measured), `${measured} was measured clean and should be closed`);
+    assert.ok(enforced.includes(measured), `${measured} was measured clean and should be closed`);
   }
-  assert.match(enforced[1], /img-src 'self' data: https:\/\/token-icons\.llamao\.fi/,
+  assert.match(enforced, /img-src 'self' data: https:\/\/token-icons\.llamao\.fi/,
     'the one origin that actually reported has to be allowed, or every token logo breaks');
 });
 
-test('connect-src and script-src stay out until they can be tested', () => {
-  const enforced = config.match(/const ENFORCED_CSP = \[([^\]]*)\]/)[1];
-  // default-src is the fallback for connect-src, so enforcing it enforces that
-  // too. Neither goes in on a list that is only probably complete.
-  for (const untested of ['script-src', 'connect-src', 'default-src']) {
-    assert.ok(!enforced.includes(untested),
-      `${untested} enforced before the wallet flow is exercised is how connecting breaks`);
+test('connect-src carries every origin a connection actually needs', () => {
+  const enforced = policy('ENFORCED_CSP');
+  // Browsing six screens found three of these. The fourth, api.coinbase.com,
+  // appeared only when a wallet was actually connected — no amount of browsing
+  // would have revealed it, and closing this directive without it would have
+  // broken connecting for everyone.
+  for (const origin of [
+    'https://api.developer.coinbase.com',
+    'https://api.coinbase.com',
+    'https://keys.coinbase.com',
+    'https://rpc.wallet.coinbase.com',
+    'https://ethereum.reth.rs',
+  ]) {
+    assert.ok(enforced.includes(origin), `${origin} is needed and its absence breaks a real flow`);
   }
-  // And they are still being measured rather than forgotten.
-  const reportOnly = config.match(/const REPORT_ONLY_CSP = \[([^\]]*)\]/)[1];
-  for (const watched of ['script-src', 'connect-src', 'default-src']) {
-    assert.ok(reportOnly.includes(watched), `${watched} must stay under report-only`);
-  }
+  // default-src is connect-src's fallback, so it could only be stated once
+  // connect-src was explicit.
+  assert.ok(enforced.includes("default-src 'self'"));
+});
+
+test('the telemetry endpoint is the one origin left out on purpose', () => {
+  const enforced = policy('ENFORCED_CSP');
+  assert.ok(!enforced.includes('cca-lite.coinbase.com'),
+    'the browser is the only lever we have: the SDK flag is unreachable behind OnchainKit');
+  // And we know blocking it is safe rather than hoping so: an ad blocker was
+  // already blocking it during testing and the SDK swallowed the failure.
+  assert.match(config, /ad blocker was already blocking it/);
+});
+
+test('script-src stays out until it can be done with a nonce', () => {
+  const enforced = policy('ENFORCED_CSP');
+  assert.ok(!enforced.includes('script-src'),
+    'hashes differ page to page, so this needs middleware, and middleware that misses one script blanks the page');
+  const reportOnly = policy('REPORT_ONLY_CSP');
+  assert.ok(reportOnly.includes("script-src 'self'"), 'and it must stay measured rather than forgotten');
 });
 
 test('upgrade-insecure-requests is enforced, not reported', () => {
   // The browser said it outright: the directive is ignored in a report-only
   // policy. Leaving it there is a line that does nothing and reads as if it does.
-  const enforced = config.match(/const ENFORCED_CSP = \[([^\]]*)\]/)[1];
-  const reportOnly = config.match(/const REPORT_ONLY_CSP = \[([^\]]*)\]/)[1];
+  const enforced = policy('ENFORCED_CSP');
+  const reportOnly = policy('REPORT_ONLY_CSP');
   assert.ok(enforced.includes('upgrade-insecure-requests'));
   assert.ok(!reportOnly.includes('upgrade-insecure-requests'));
 });
@@ -120,7 +155,7 @@ test('the report-only policy is strict enough to be worth reading', () => {
   // Read the array itself, not the file: the comments around it legitimately
   // name origins and directives while explaining why they are NOT in the
   // policy, and a regex over the whole file cannot tell those apart.
-  const reportOnly = config.match(/const REPORT_ONLY_CSP = \[([^\]]*)\]/)[1];
+  const reportOnly = policy('REPORT_ONLY_CSP');
   assert.match(reportOnly, /"connect-src 'self'"/,
     'a permissive report-only policy teaches nothing');
   assert.match(reportOnly, /"script-src 'self'"/);
