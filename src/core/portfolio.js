@@ -452,7 +452,17 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
         { protocol: 'uniswap-v3', nfpm: NFPM_ADDRS['uniswap-v3']?.[CHAIN], factory: FACTORY_ADDRS['uniswap-v3']?.[CHAIN] },
       ].filter((sourceItem) => sourceItem.nfpm);
       const vfatEverOwnedPromise = Promise.all(vfatSources.map(async (sourceItem) => {
-        const owned = await getWalletTokenIdsFromLogs(sickle, sourceItem.protocol, sourceItem.nfpm).catch(() => []);
+        let owned;
+        try {
+          owned = await getWalletTokenIdsFromLogs(sickle, sourceItem.protocol, sourceItem.nfpm);
+        } catch (err) {
+          // A throw here means we could not search this venue at all, which is
+          // not the same as finding nothing there. `discoveryIncomplete` already
+          // travels with the report and says the list is a floor, not an answer.
+          trace('vfatEverOwnedError', { protocol: sourceItem.protocol, error: String(err?.message || err).slice(0, 120) });
+          discoveryIncomplete = true;
+          return [];
+        }
         const list = Array.isArray(owned) ? owned : (owned?.items ?? []);
         if (!Array.isArray(owned) && owned?.incomplete) discoveryIncomplete = true;
         return list.map((t) => ({ ...t, protocol: sourceItem.protocol, nfpm: sourceItem.nfpm, factory: sourceItem.factory }));
@@ -472,8 +482,23 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
       // The NFT is staked into the gauge by the Sickle, so it is not in the
       // Sickle's balance either. Same search as for a wallet, one level in.
       const sickleTokens = sickleHeld.flatMap((p) => [p.token0?.address, p.token1?.address]).filter(Boolean);
-      const sickleStaked = await getStakedTokenIds(sickle, { extraTokens: [...extraTokens, ...sickleTokens], diag })
-        .catch(() => []);
+      // This used to be `.catch(() => [])`, and that swallow cost more than any
+      // other in this file. A vfat user's liquidity is staked BY the Sickle, so
+      // this one call is where nearly all of their money is: when it failed,
+      // the wallet was shown its lending and its loose tokens and nothing else,
+      // with no warning beside the total. Observed in production on a cold
+      // instance — the same wallet read $655,303 on one request and $59,064 on
+      // the next, because $596,244 of liquidity quietly was not there.
+      //
+      // The wallet's own staked scan, thirty lines up, has always warned on
+      // failure. Only the Sickle's did not, which is the half that matters most.
+      let sickleStaked = [];
+      try {
+        sickleStaked = await getStakedTokenIds(sickle, { extraTokens: [...extraTokens, ...sickleTokens], diag });
+      } catch (err) {
+        trace('vfatStakedSearchError', String(err?.message || err).slice(0, 160));
+        warnings.push('Positions staked through vfat could not be read, so any of those are missing from this total.');
+      }
       mark('vfat.stakedIds');
       // One await per position, in a row, for positions that have nothing to do
       // with each other. The dedupe still happens in order, before any request
@@ -511,7 +536,13 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
       // the Sickle, a vfat user's lifetime report would quietly contain only
       // the positions still open, while calling itself all time.
       // Started before the held scan, so by now it has usually finished.
-      const vfatEverOwned = await vfatEverOwnedPromise.catch(() => []);
+      // Each source already handles its own failure above, so this catch is the
+      // last resort rather than the swallow it looks like.
+      const vfatEverOwned = await vfatEverOwnedPromise.catch((err) => {
+        trace('vfatEverOwnedFailed', String(err?.message || err).slice(0, 120));
+        discoveryIncomplete = true;
+        return [];
+      });
 
       mark('vfat.everOwned');
       const vfatUnknown = vfatEverOwned.filter((t) => !seen.has(t.tokenId));

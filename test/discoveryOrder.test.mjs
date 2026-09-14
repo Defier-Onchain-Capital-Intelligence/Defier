@@ -78,6 +78,6 @@ test('the ever-owned scan starts before it is needed', () => {
   const between = src.slice(started, awaited);
   assert.match(between, /scanWalletPositions\(sickle/,
     'it should overlap the held scan, which is the point of starting it early');
-  assert.match(src.slice(started, started + 900), /vfatEverOwnedPromise\.catch\(/,
+  assert.match(src.slice(started, awaited), /vfatEverOwnedPromise\.catch\(/,
     'a promise awaited later must not reject on its own timetable');
 });
