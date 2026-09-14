@@ -1,3 +1,33 @@
+/**
+ * Where we would like the policy to end up, sent in report-only mode until the
+ * reports say which parts are impossible.
+ *
+ * `connect-src 'self'` is deliberately too strict: a wallet SDK plainly needs
+ * more than that, and the violation reports are how we find out exactly what,
+ * with hostnames, instead of pasting a list from somebody else's blog post.
+ * The same goes for img-src and token logos.
+ *
+ * 'unsafe-inline' for styles is not a concession — Next.js ships inline style
+ * attributes and there is no version of this app without them. Scripts are a
+ * different matter and this asks for none, which the reports will contradict;
+ * the fix then is a nonce, not a shrug.
+ */
+const REPORT_ONLY_CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data:",
+  "font-src 'self' data:",
+  "connect-src 'self'",
+  "frame-src 'self'",
+  "worker-src 'self' blob:",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  'upgrade-insecure-requests',
+  'report-uri /api/csp-report',
+].join('; ');
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // ethers v5 is CommonJS and must not be bundled into the server build.
@@ -18,18 +48,35 @@ const nextConfig = {
    * since Open Graph images and the manifest are fetched by absolute URL.
    */
   /**
-   * Response headers we were not sending at all.
+   * Response headers, and a Content-Security-Policy in two halves.
    *
-   * Deliberately not a Content-Security-Policy. A strict CSP on a page that
+   * The reason this was deferred for days is real: a strict CSP on a page that
    * loads a wallet SDK, an injected browser extension and remote token images
-   * is a real testing exercise, and a CSP that is wrong locks people out of
-   * connecting their wallet. It is worth doing and it is worth doing with the
-   * time to verify it, not shipped blind. Everything here is safe to send
-   * today and costs nothing.
+   * is a testing exercise, and a wrong one locks people out of connecting
+   * their wallet. What was wrong was treating that as a reason to ship
+   * nothing.
    *
-   * Note what is absent: X-Frame-Options and frame-ancestors. This app is a
-   * Base Mini App, which means it is meant to run inside another client's
-   * iframe, and forbidding that would remove the surface it was built for.
+   * The origins a wallet SDK reaches cannot be found by reading our source —
+   * they are inside the SDK, and grepping our files turns up only the hosts we
+   * call ourselves. Guessing the rest and enforcing the guess is exactly the
+   * mistake being avoided. So the policy is split by what is actually known:
+   *
+   *   ENFORCED — the directives that cannot break a wallet connection, because
+   *   nothing legitimate here uses them at all. object-src 'none' kills Flash
+   *   and applet embeds; base-uri 'self' stops an injected <base> tag from
+   *   re-pointing every relative URL on the page at somebody else's server;
+   *   form-action 'self' stops a form from posting a wallet address off-site.
+   *   None of these can cost a user anything, and all three close real holes.
+   *
+   *   REPORT ONLY — the rest, written as strictly as we would like to end up,
+   *   so the browser tells us precisely which origins the wallet SDK needs
+   *   instead of us inventing a list. Violations go to /api/csp-report. When
+   *   the reports from real traffic have been read, the report-only policy
+   *   becomes the enforced one, minus whatever they prove is required.
+   *
+   * Note what is absent from both: X-Frame-Options and frame-ancestors. This
+   * app is a Base Mini App, meant to run inside another client's iframe, and
+   * forbidding that would remove the surface it was built for.
    */
   async headers() {
     return [{
@@ -47,6 +94,14 @@ const nextConfig = {
         // Two years, subdomains included. The host already redirects to HTTPS;
         // this stops the first request of a session being made in the clear.
         { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' },
+        // Safe to enforce today: nothing here legitimately uses any of them.
+        {
+          key: 'Content-Security-Policy',
+          value: ["object-src 'none'", "base-uri 'self'", "form-action 'self'"].join('; '),
+        },
+        // Strict on purpose, and reporting rather than blocking, so the
+        // browser names the origins the wallet SDK needs.
+        { key: 'Content-Security-Policy-Report-Only', value: REPORT_ONLY_CSP },
       ],
     }];
   },

@@ -87,3 +87,33 @@ verifica en producción tras el deploy, no en el build.
 ## 7. Producto
 - La app es de solo lectura: nunca pide firmas, nunca pide seed phrases, nunca construye transacciones. Decirlo en la UI.
 - Disclaimers: informational only; tokenized stocks only in eligible jurisdictions outside the US.
+
+## 8. Content-Security-Policy
+
+La política va en dos mitades, y la división es deliberada.
+
+**Se aplica hoy** (`Content-Security-Policy`): `object-src 'none'`,
+`base-uri 'self'`, `form-action 'self'`. Ninguna puede romper una conexión de
+wallet, porque nada legítimo en esta app las usa. `base-uri` impide que un
+`<base>` inyectado reapunte todas las URLs relativas de la página al servidor
+de otro; `form-action` impide que un formulario mande una dirección de wallet
+fuera del sitio.
+
+**Solo reporta** (`Content-Security-Policy-Report-Only`): el resto, escrito tan
+estricto como queremos terminar. Los orígenes que necesita el SDK de wallet
+están dentro del SDK, no en nuestro código — buscarlos con grep solo encuentra
+los hosts que llamamos nosotros. Adivinar el resto y aplicar la adivinanza es
+exactamente el error que esta forma evita. Las violaciones van a
+`/api/csp-report`.
+
+**Cómo se cierra**: leer los reportes de tráfico real, añadir únicamente los
+orígenes que demuestren ser necesarios, y mover la política de report-only a
+aplicada. No antes.
+
+`/api/csp-report` no guarda nada: limita por IP, capa el cuerpo, corta a 10
+reportes por POST y **reduce toda URL a origen + ruta antes de escribirla**,
+porque `document-uri` lleva la dirección del wallet en el query string y
+registrarla sería una fuga peor que la que la política previene.
+
+**Ausentes a propósito**: `frame-ancestors` y `X-Frame-Options`. Esto es una
+Base Mini App y está hecha para correr dentro del iframe de otro cliente.
