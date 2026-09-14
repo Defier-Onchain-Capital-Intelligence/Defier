@@ -24,8 +24,22 @@ const REPORT_ONLY_CSP = [
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
-  'upgrade-insecure-requests',
   'report-uri /api/csp-report',
+].join('; ');
+
+/**
+ * Enforced today, because none of it can break a wallet connection.
+ *
+ * `upgrade-insecure-requests` moved here from the report-only half after the
+ * browser said, in as many words, that it is ignored in a report-only policy.
+ * It is safe to enforce: everything this app loads is already HTTPS, so it
+ * upgrades nothing and forbids nothing that works today.
+ */
+const ENFORCED_CSP = [
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  'upgrade-insecure-requests',
 ].join('; ');
 
 /** @type {import('next').NextConfig} */
@@ -95,10 +109,7 @@ const nextConfig = {
         // this stops the first request of a session being made in the clear.
         { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' },
         // Safe to enforce today: nothing here legitimately uses any of them.
-        {
-          key: 'Content-Security-Policy',
-          value: ["object-src 'none'", "base-uri 'self'", "form-action 'self'"].join('; '),
-        },
+        { key: 'Content-Security-Policy', value: ENFORCED_CSP },
         // Strict on purpose, and reporting rather than blocking, so the
         // browser names the origins the wallet SDK needs.
         { key: 'Content-Security-Policy-Report-Only', value: REPORT_ONLY_CSP },

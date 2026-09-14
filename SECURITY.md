@@ -139,3 +139,44 @@ hace el wallet del usuario en su propio proceso.
 firma a propósito, ese test se cae — y la respuesta correcta **no es borrarlo**,
 es volver a leer el aviso y decidir de nuevo, porque el único motivo por el que
 hoy no nos afecta es que no tocamos ese camino.
+
+## 10. Lo que la CSP en modo reporte encontró (14 sep 2026)
+
+La política report-only hizo su trabajo la primera vez que se cargó una página.
+Esto es lo que el navegador dijo, textual, y qué se hizo con cada cosa.
+
+**Telemetría a terceros que nadie había pedido.** Dos rutas distintas:
+
+1. **OnchainKit** reporta uso a `https://api.developer.coinbase.com/analytics`.
+   Su provider tiene `analytics ?? true`: venía encendido por defecto. La
+   protección es un `if` alrededor de un `fetch`, así que apagarlo no puede
+   afectar la conexión de wallet. **RESUELTO**: `analytics={false}`.
+
+2. **El SDK de wallet de Coinbase** inyecta su propio script de telemetría e
+   inicializa Amplitude contra `https://cca-lite.coinbase.com`, identificando un
+   `deviceId` persistente **en la carga de página, antes de conectar ningún
+   wallet**. Lo controla `preference.telemetry !== false`, pero OnchainKit le
+   pasa a su conector `preference: 'all'` como string, así que no hay dónde
+   poner el flag sin montar nuestro propio `wagmi` config y envolver en
+   `WagmiProvider`. **PENDIENTE**, y a propósito: ese cambio toca el modal de
+   conexión (rabby/trust/frame, MiniKit) y **no se puede verificar sin conectar
+   un wallet de verdad**. No se despliega a ciegas.
+
+Para una app cuya posición de privacidad es que hashea la dirección antes de
+guardarla, que un tercero reciba un identificador persistente del navegador en
+cada carga es una contradicción. Vale la pena cerrarla; vale más cerrarla
+probada.
+
+**Orígenes que la app necesita de verdad** (observados, no supuestos):
+
+| origen | quién | para qué |
+|---|---|---|
+| `api.developer.coinbase.com` | OnchainKit | RPC de Base |
+| `ethereum.reth.rs` | wagmi | mainnet, probablemente ENS |
+| `cca-lite.coinbase.com` | wallet SDK | telemetría (ver arriba) |
+
+**`script-src`**: doce scripts inline, todos de la hidratación de Next.js. Cerrar
+esa directiva exige nonces, no `'unsafe-inline'`.
+
+**`upgrade-insecure-requests`**: el navegador avisó que se ignora en una política
+report-only. Movida a la mitad aplicada, donde no prohíbe nada que hoy funcione.

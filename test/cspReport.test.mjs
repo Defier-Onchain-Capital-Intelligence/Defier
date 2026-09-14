@@ -71,7 +71,7 @@ test('a failing report endpoint is invisible to someone using the site', () => {
 });
 
 test('only the directives that cannot break a wallet are enforced', () => {
-  const enforced = config.match(/key: 'Content-Security-Policy',\s*value: \[([^\]]*)\]/);
+  const enforced = config.match(/const ENFORCED_CSP = \[([^\]]*)\]/);
   assert.ok(enforced, 'an enforced policy must exist');
   for (const safe of ['object-src', 'base-uri', 'form-action']) {
     assert.ok(enforced[1].includes(safe), `${safe} is safe to enforce and closes a real hole`);
@@ -80,6 +80,24 @@ test('only the directives that cannot break a wallet are enforced', () => {
     assert.ok(!enforced[1].includes(risky),
       `${risky} enforced on a guess is how a wallet connection breaks`);
   }
+});
+
+test('upgrade-insecure-requests is enforced, not reported', () => {
+  // The browser said it outright: the directive is ignored in a report-only
+  // policy. Leaving it there is a line that does nothing and reads as if it does.
+  const enforced = config.match(/const ENFORCED_CSP = \[([^\]]*)\]/)[1];
+  const reportOnly = config.match(/const REPORT_ONLY_CSP = \[([^\]]*)\]/)[1];
+  assert.ok(enforced.includes('upgrade-insecure-requests'));
+  assert.ok(!reportOnly.includes('upgrade-insecure-requests'));
+});
+
+test('third-party analytics is off where we can switch it off', () => {
+  const providers = readFileSync(new URL('../src/components/Providers.tsx', import.meta.url), 'utf8');
+  assert.match(providers, /analytics=\{false\}/,
+    'OnchainKit reports usage to Coinbase unless told not to');
+  // And the part we cannot switch off from here is written down rather than
+  // forgotten: the wallet SDK's own telemetry needs our own wagmi config.
+  assert.match(providers, /cca-lite\.coinbase\.com/);
 });
 
 test('the report-only policy is strict enough to be worth reading', () => {

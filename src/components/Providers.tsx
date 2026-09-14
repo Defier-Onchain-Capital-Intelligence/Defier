@@ -25,6 +25,26 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <OnchainKitProvider
       apiKey={process.env.NEXT_PUBLIC_ONCHAINKIT_API_KEY}
       chain={base}
+      /*
+       * OnchainKit reports usage to Coinbase by default — `analytics ?? true`
+       * in its provider — at https://api.developer.coinbase.com/analytics.
+       * Found by putting a report-only CSP on the site and reading what the
+       * browser said it would have blocked, which is the only way any of this
+       * becomes visible.
+       *
+       * A product whose privacy position is that it hashes a wallet address
+       * before storing it should not be sending usage to a third party because
+       * a default said so. The guard is a plain `if` around a fetch, so
+       * switching it off cannot affect connecting a wallet.
+       *
+       * NOT the whole story: the Coinbase Wallet SDK runs its own telemetry to
+       * cca-lite.coinbase.com, an Amplitude endpoint, identifying a persistent
+       * deviceId on page load before any wallet is connected. That one is
+       * gated by `preference.telemetry !== false`, and OnchainKit hands its
+       * connector `preference: 'all'` as a string, so there is nowhere to put
+       * the flag without supplying our own wagmi config. See SECURITY.md §10.
+       */
+      analytics={false}
       config={{
         appearance: { name: 'DeFier', mode: 'dark', theme: 'default' },
         // Without this, OnchainKit's default config carries exactly one
