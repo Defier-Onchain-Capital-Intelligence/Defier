@@ -182,9 +182,24 @@ async function probeUrls(urls, onFinal) {
   });
 
   await Promise.race([everything, enough]);
-  // Whatever has answered by now. At least one, unless every endpoint is down,
-  // in which case this waited for all of them and the caller says so.
-  return done.length ? [...done] : everything;
+
+  // Back into the ORDER THE LIST WAS WRITTEN IN, which is preference order and
+  // not the order they happened to answer.
+  //
+  // `done` fills in completion order, and returning it that way was a real bug
+  // with a measured cost: getProvider builds its FallbackProvider with
+  // `priority: i + 1`, so a public node that merely PROBED fast outranked
+  // Alchemy for every eth_call afterwards, and getLogsProvider's preference
+  // walk found whichever endpoint happened to be first in the array. The build
+  // went from 5.6 seconds to 53.8, with the Sickle's log scan alone going from
+  // 1 second to 25 — public nodes cap eth_getLogs at 1,000 to 10,000 blocks
+  // and Alchemy does not, so demoting it turns one scan into hundreds.
+  //
+  // A probe measures whether an endpoint answers. It does not get a vote on
+  // which one we would rather use.
+  const byPreference = (a, b) => urls.indexOf(a.url) - urls.indexOf(b.url);
+  const answered = done.length ? [...done] : await everything;
+  return answered.sort(byPreference);
 }
 
 export async function getProvider(chain) {

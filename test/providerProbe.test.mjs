@@ -108,3 +108,29 @@ test('both probes share one implementation', () => {
   assert.ok(!/Promise\.allSettled\(\s*urls\.map/.test(src),
     'the logs provider had the same bug and the same fix');
 });
+
+test('a probe does not get a vote on which endpoint we prefer', () => {
+  // `done` fills in completion order and returning it that way cost 48
+  // seconds: getProvider assigns FallbackProvider priority by array index, so
+  // a public node that merely probed fast outranked Alchemy for every eth_call
+  // after it, and the Sickle's log scan went from 1 second to 25 because
+  // public nodes cap eth_getLogs where Alchemy does not.
+  assert.match(src, /const byPreference = \(a, b\) => urls\.indexOf\(a\.url\) - urls\.indexOf\(b\.url\)/);
+  assert.match(src, /answered\.sort\(byPreference\)/);
+});
+
+test('the order the list is written in is the order it is used in', () => {
+  const urls = ['alchemy', 'publicnode', 'tenderly', 'drpc', '1rpc'];
+  // Answered fastest-first, which is not the order we want to use them in.
+  const done = [
+    { url: 'tenderly', provider: {} },
+    { url: 'publicnode', provider: {} },
+    { url: 'alchemy', provider: {} },
+    { url: '1rpc', provider: {} },
+    { url: 'drpc', provider: {} },
+  ];
+  const sorted = [...done].sort((a, b) => urls.indexOf(a.url) - urls.indexOf(b.url));
+  assert.deepEqual(sorted.map((r) => r.url), urls,
+    'preference is a decision; probe latency is an accident');
+  assert.equal(sorted[0].url, 'alchemy', 'and the first one is first for a reason');
+});
