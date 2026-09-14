@@ -686,10 +686,21 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
     }
 
     let incentivesPending = null;
+    /** Set when the gauge could not be asked, so the reader is not shown a zero. */
+    let incentivesUnread = false;
     if (staked && gaugeAddress) {
-      const amount = await getPendingRewards(gaugeAddress, holder, p.tokenId, provider).catch(() => 0);
+      const amount = await getPendingRewards(gaugeAddress, holder, p.tokenId, provider).catch(() => null);
       const aeroPrice = await fetchTokenPrice(CHAIN, BASE_TOKENS.AERO).catch(() => null);
-      incentivesPending = { amount, usd: aeroPrice ? amount * aeroPrice : 0 };
+      if (amount == null) {
+        // "Zero pending" and "we could not ask the gauge" used to produce the
+        // same 0, and that 0 is money the wallet is owed AND a term in this
+        // position's net P&L. Reporting it as unread costs a line on screen;
+        // reporting it as zero understates the number the product exists for.
+        incentivesUnread = true;
+        incentivesPending = { amount: null, usd: null };
+      } else {
+        incentivesPending = { amount, usd: aeroPrice ? amount * aeroPrice : 0 };
+      }
     }
 
     const position = toLpPosition(p, {
@@ -699,8 +710,11 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
       events: history.events,
       openedAt: history.openedAt,
       closed: history.closed || !p.liquidity || p.liquidity === '0',
-      confidence: history.confidence,
-      notes: history.notes,
+      // A position missing a term of its own P&L is not a full reading of it.
+      confidence: incentivesUnread ? 'partial' : history.confidence,
+      notes: incentivesUnread
+        ? [...history.notes, 'The gauge did not answer, so unclaimed rewards are not counted in this position\'s P&L.']
+        : history.notes,
     });
 
     // P&L is computed later, in one pass over every position. It has to wait

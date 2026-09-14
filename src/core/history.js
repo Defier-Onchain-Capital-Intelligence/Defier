@@ -585,23 +585,50 @@ export async function getPositionHistory({
   const mintBlock = mintLog.blockNumber;
 
   // Everything that happened to this position, from its mint forward.
-  const scan = (topics, address = resolvedNfpm) => chunkedGetLogs(
-    CHAIN, { address, topics },
-    { fromBlock: mintBlock, toBlock: currentBlock, backward: false, collectAll: true, maxResults: 500 }
-  ).then((r) => r || []).catch(() => []);
+  /**
+   * One event kind across this position's life.
+   *
+   * A scan that fails used to return an empty array, and an empty array here
+   * does not read as "we could not look" — it reads as "this never happened".
+   * The collect scan failing meant fees collected showed as zero; the claim
+   * scan failing meant rewards claimed showed as zero. Both are money, both
+   * land in net P&L, and neither said anything.
+   *
+   * Truncation is the same problem arriving politely: chunkedGetLogs stops at
+   * maxResults or when its chunk budget runs out, and the events past that
+   * point are missing from a total that still looks complete.
+   */
+  const scan = async (label, topics, address = resolvedNfpm) => {
+    const report = {};
+    let logs;
+    try {
+      logs = await chunkedGetLogs(
+        CHAIN, { address, topics },
+        { fromBlock: mintBlock, toBlock: currentBlock, backward: false,
+          collectAll: true, maxResults: 500, report },
+      );
+    } catch (_) {
+      degrade(`The ${label} history could not be read, so it is missing from this position's P&L.`);
+      return [];
+    }
+    if (report.truncated) {
+      degrade(`This position has more ${label} events than one request can read, so its P&L covers only part of them.`);
+    }
+    return logs || [];
+  };
 
   const [increases, decreases, collects, transfers, claims] = await Promise.all([
-    scan([topic.increase, tid]),
-    scan([topic.decrease, tid]),
-    scan([topic.collect, tid]),
-    scan([topic.transfer, null, null, tid]),
-    gaugeAddress ? scan([topic.claim2, pad32(wallet)], gaugeAddress) : Promise.resolve([]),
+    scan('deposit', [topic.increase, tid]),
+    scan('withdrawal', [topic.decrease, tid]),
+    scan('fee collection', [topic.collect, tid]),
+    scan('transfer', [topic.transfer, null, null, tid]),
+    gaugeAddress ? scan('reward claim', [topic.claim2, pad32(wallet)], gaugeAddress) : Promise.resolve([]),
   ]);
 
   let claimLogs = claims;
   if (gaugeAddress && claimLogs.length === 0) {
     // Some gauge versions index the reward token too, which changes the topic.
-    claimLogs = await scan([topic.claim3, pad32(wallet)], gaugeAddress);
+    claimLogs = await scan('reward claim', [topic.claim3, pad32(wallet)], gaugeAddress);
   }
 
   const allLogs = [...increases, ...decreases, ...collects, ...transfers, ...claimLogs];
@@ -769,9 +796,29 @@ export async function getPositionHistory({
   return { events, openedAt, mintBlock, closed, confidence, notes };
 }
 
-/** Pending AERO for a staked position: gauge.earned(wallet, tokenId). Human units. */
+/**
+ * Pending AERO for a staked position: gauge.earned(wallet, tokenId). Human units.
+ *
+ * Returns null when the gauge could not be asked, and 0 only when the gauge
+ * said zero. Those were the same value here until now, and the difference
+ * matters twice over: the figure is money the wallet is owed, and it is a term
+ * in the position's net P&L. An unreadable gauge quietly lowered the headline
+ * number this product exists to state.
+ *
+ * @returns {Promise<number|null>} null means unread, not zero.
+ */
 export async function getPendingRewards(gaugeAddress, wallet, tokenId, provider) {
   const gauge = new ethers.Contract(gaugeAddress, CL_GAUGE_ABI, provider);
-  const raw = await withTimeout(gauge['earned(address,uint256)'](wallet, tokenId), 6000).catch(() => null);
-  return raw ? parseFloat(ethers.utils.formatUnits(raw, 18)) : 0;
+  let raw;
+  try {
+    raw = await withTimeout(gauge['earned(address,uint256)'](wallet, tokenId), 6000);
+  } catch (_) {
+    return null;
+  }
+  if (raw == null) return null;
+  try {
+    return parseFloat(ethers.utils.formatUnits(raw, 18));
+  } catch (_) {
+    return null;
+  }
 }

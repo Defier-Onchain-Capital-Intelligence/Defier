@@ -70,6 +70,13 @@ export function computePositionPnl(pos) {
   // ── I: incentives, claimed at the price of the claim, pending at today's ──
   const incentivesClaimedUsd = sum(claims.map((e) => e.rewardUsd));
   const incentivesPendingUsd = pos.incentivesPending?.usd ?? 0;
+  // A staked position whose gauge did not answer carries null here, not zero.
+  // The arithmetic has to use zero — there is nothing else to use — so the
+  // number stops being a complete reading and says so, rather than quietly
+  // being a little too low.
+  if (pos.incentivesPending && pos.incentivesPending.usd == null) {
+    degrade('The gauge did not answer, so unclaimed rewards are missing from this P&L.');
+  }
   if (claims.some((e) => e.rewardUsd == null)) degrade('A rewards claim could not be valued.');
   if (pos.staked && claims.length === 0 && !pos.gaugeAddress) {
     degrade('Rewards already claimed from the gauge could not be attributed to this position.');

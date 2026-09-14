@@ -157,7 +157,12 @@ export interface LpPosition {
   prices: { token0: PriceQuote | null; token1: PriceQuote | null };
   valueUsd: number | null;
   feesUnclaimed: { token0: number; token1: number; usd: number };
-  incentivesPending: { amount: number; usd: number } | null;
+  /**
+   * Unclaimed rewards. null when this position is not staked; amount and usd
+   * null when the gauge could not be asked — which is not the same as zero, and
+   * used to be reported as zero.
+   */
+  incentivesPending: { amount: number | null; usd: number | null } | null;
   openedAt: number | null;      // unix seconds of mint
   events: PositionEvent[];
   pnl: PositionPnl | null;

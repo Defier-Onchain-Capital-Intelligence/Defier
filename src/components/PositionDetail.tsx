@@ -111,9 +111,21 @@ export function PositionDetail({ id, wallet }: { id: string; wallet: string }) {
                   info={`Still sitting in the position: ${amount(pos.feesUnclaimed.token0)} ${symbol0} and ${amount(pos.feesUnclaimed.token1)} ${symbol1}. Read exactly from the pool, not estimated.`} />
             <Line label="Rewards claimed" value={usd(pnl.incentivesClaimedUsd)} tone="text-gain"
                   info="AERO emissions you have already claimed from the gauge, valued at the price of the day you claimed." />
-            <Line label="Rewards pending" value={usd(pnl.incentivesPendingUsd)} tone="text-gain"
+            {/*
+              A gauge that did not answer carries null, not zero. Printing
+              $0.00 there tells someone they are owed nothing, which is a
+              different statement from "we could not ask" and is the one thing
+              this screen must not get wrong.
+            */}
+            <Line label="Rewards pending"
+                  value={pos.incentivesPending && pos.incentivesPending.usd == null
+                    ? 'not read'
+                    : usd(pnl.incentivesPendingUsd)}
+                  tone={pos.incentivesPending && pos.incentivesPending.usd == null ? 'text-ink-muted' : 'text-gain'}
                   info={pos.incentivesPending
-                    ? `${amount(pos.incentivesPending.amount)} AERO earned and not yet claimed.`
+                    ? (pos.incentivesPending.amount == null
+                      ? 'The gauge did not answer on this request, so we cannot say what is unclaimed. It is not zero — it is unknown, and it is missing from the net result below.'
+                      : `${amount(pos.incentivesPending.amount)} AERO earned and not yet claimed.`)
                     : 'Emissions earned and not yet claimed. Only staked positions accrue these.'} />
             <Line label="Gas paid" value={usd(pnl.gasUsd)} tone="text-loss" />
             <Line label="Divergence from holding" value={usd(pnl.divergenceUsd, { sign: true })} tone={toneOf(pnl.divergenceUsd)}
