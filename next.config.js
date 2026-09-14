@@ -94,6 +94,12 @@ const ENFORCED_CSP = [
   // fallback, so this would have closed connect-src by the back door.
   "default-src 'self'",
   'upgrade-insecure-requests',
+  // Enforcing without reporting is choosing not to find out. Every origin
+  // above was learned from a browser that could talk back through a console;
+  // inside Base App on a phone there is no console, so this is the only way a
+  // miss there reaches us at all — and it reaches us in the server log within
+  // seconds rather than through a user who cannot connect and does not write in.
+  'report-uri /api/csp-report',
 ].join('; ');
 
 /** @type {import('next').NextConfig} */

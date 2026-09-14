@@ -28,6 +28,17 @@ export const dynamic = 'force-dynamic';
 
 const MAX_BODY_BYTES = 8_000;
 
+/**
+ * The one violation we caused on purpose.
+ *
+ * cca-lite.coinbase.com is the wallet SDK's Amplitude endpoint, left out of
+ * connect-src deliberately (SECURITY.md §11). It is therefore blocked on every
+ * single page load, by design, for every visitor. Logging it would bury the
+ * reports that mean something under the one report that means nothing — and a
+ * log nobody can read is the same as no log. It is counted, not written.
+ */
+const DELIBERATE = 'https://cca-lite.coinbase.com';
+
 /** An origin and path, never a query string: ?address= lives in these URLs. */
 function scrub(value: unknown): string | null {
   if (typeof value !== 'string' || !value) return null;
@@ -68,14 +79,24 @@ export async function POST(req: Request) {
     ? (body as Array<Record<string, unknown>>).map((r) => (r?.body as Record<string, unknown>) ?? r)
     : [(asRecord['csp-report'] as Record<string, unknown>) ?? asRecord];
 
+  let deliberate = 0;
   for (const r of reports.slice(0, 10)) {
     if (!r || typeof r !== 'object') continue;
+    const blocked = scrub(r['blocked-uri'] ?? r.blockedURL);
+    if (blocked && blocked.startsWith(DELIBERATE)) { deliberate += 1; continue; }
     console.warn('[csp]', {
+      // "enforce" means something on the site actually broke and needs an
+      // origin added. "report" is script-src still being measured, and is not
+      // urgent. Without this the two are indistinguishable in the log.
+      disposition: scrub(r.disposition) ?? 'unknown',
       directive: scrub(r['effective-directive'] ?? r.effectiveDirective ?? r['violated-directive']),
-      blocked: scrub(r['blocked-uri'] ?? r.blockedURL),
+      blocked,
       document: scrub(r['document-uri'] ?? r.documentURL),
     });
   }
+  // One line, not one per report, and only when there were none of substance:
+  // enough to notice if the block ever stops happening, quiet otherwise.
+  if (deliberate && deliberate === reports.length) console.log('[csp] telemetry blocked as intended');
 
   // 204 always: a browser has nothing useful to do with an error here, and a
   // failing report endpoint must never be visible to someone using the site.

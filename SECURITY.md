@@ -241,10 +241,35 @@ esperanza**: el ad blocker de Alberto ya lo estaba bloqueando durante la prueba
 TypeError: Failed to fetch"*) con la app funcionando normal todo el rato. Esto
 convierte la divulgación de PRIVACY.md en algo que además se cumple.
 
+**Un hueco en la medición, dicho antes de que se note solo.** La prueba que
+produjo esa tabla se hizo conectando **Rabby** en Brave. Rabby es una extensión
+inyectada: habla por `window.ethereum` y no toca ningún origen de Coinbase. El
+conector por defecto de esta app es **Base Account (Coinbase Keys)**, y es el
+único camino que usa `keys.coinbase.com` y `rpc.wallet.coinbase.com` — los dos
+orígenes que **no** salieron de medir, sino de leer las constantes del SDK. O
+sea: el camino que más gente va a usar es justo el que no se midió.
+
+**Por eso la política aplicada también reporta.** `report-uri /api/csp-report`
+está en las dos mitades, no solo en report-only. Aplicar sin reportar es
+decidir no enterarse: los orígenes de arriba se aprendieron de un navegador con
+consola, y **dentro de Base App, en un teléfono, no hay consola**. El log del
+servidor es el único canal que le queda a un fallo ahí, y llega en segundos en
+vez de a través de un usuario que no puede conectar y no escribe.
+
+El reporte trae `disposition`: `enforce` significa que algo se rompió de verdad
+y falta un origen; `report` es `script-src` todavía midiéndose, y no es urgente.
+Sin ese campo los dos casos son indistinguibles en el log.
+
+`cca-lite.coinbase.com` se **cuenta y no se escribe**. Lo bloqueamos a propósito
+en cada carga de cada visitante, así que registrarlo línea por línea enterraría
+los reportes que sí importan bajo el único que no importa — y un log que nadie
+puede leer es lo mismo que no tener log.
+
 **Lo que hay que verificar después del deploy**, porque medir en local no lo
-sustituye: conectar un wallet otra vez con la política aplicada, y abrir la app
-dentro de Base App. Si algo revienta, aparece en consola como violación de
-`connect-src` con el origen exacto que falta, y añadirlo es una línea.
+sustituye: conectar con **Base Account**, no solo con una extensión inyectada, y
+abrir la app dentro de Base App. Si algo revienta aparece como violación de
+`connect-src` con el origen exacto que falta — en consola si hay, y en el log
+del servidor siempre — y añadirlo es una línea.
 
 **Qué lo vigila**: `test/cspReport.test.mjs` (14 tests) comprueba que cada uno
 de esos cinco orígenes sigue en la política — quitar uno rompe un flujo real —

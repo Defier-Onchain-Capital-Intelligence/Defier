@@ -125,6 +125,25 @@ test('the telemetry endpoint is the one origin left out on purpose', () => {
   assert.match(config, /ad blocker was already blocking it/);
 });
 
+test('enforcing without reporting would be choosing not to find out', () => {
+  const enforced = policy('ENFORCED_CSP');
+  assert.ok(enforced.includes('report-uri /api/csp-report'),
+    'inside Base App on a phone there is no console: the server log is the only channel a miss has');
+  const reportOnly = policy('REPORT_ONLY_CSP');
+  assert.ok(reportOnly.includes('report-uri /api/csp-report'));
+});
+
+test('the violation we cause on purpose does not drown the ones that matter', () => {
+  // cca-lite is blocked on every page load for every visitor by design. One
+  // line per load would make the log unreadable, and an unreadable log is the
+  // same as no log — which is the whole point of having added report-uri.
+  assert.match(route, /const DELIBERATE = 'https:\/\/cca-lite\.coinbase\.com'/);
+  assert.match(route, /startsWith\(DELIBERATE\)/);
+  // And the useful half is kept: "enforce" means something actually broke,
+  // "report" is script-src still being measured.
+  assert.match(route, /disposition:/);
+});
+
 test('script-src stays out until it can be done with a nonce', () => {
   const enforced = policy('ENFORCED_CSP');
   assert.ok(!enforced.includes('script-src'),
