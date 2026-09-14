@@ -303,8 +303,17 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
   const extraTokens = held.flatMap((p) => [p.token0?.address, p.token1?.address]).filter(Boolean);
   let stakedRefs = [];
   try {
-    stakedRefs = await getStakedTokenIds(wallet, { extraTokens, diag });
+    const stakedReport = {};
+    stakedRefs = await getStakedTokenIds(wallet, { extraTokens, diag, report: stakedReport });
     trace('stakedRefs', stakedRefs);
+    // A gauge that could not be asked returns nothing, exactly like a gauge
+    // with nothing in it. Only the report tells the two apart.
+    if (stakedReport.gaugesFailed > 0) {
+      warnings.push(
+        `${stakedReport.gaugesFailed} of ${stakedReport.gaugesChecked} gauges could not be read, `
+        + 'so a staked position may be missing from this total.',
+      );
+    }
   } catch (err) {
     trace('stakedSearchError', String(err?.message || err));
     warnings.push('The staked position search failed, so gauge positions may be missing.');
@@ -493,11 +502,23 @@ export async function buildPortfolio(address, { diagnostics = false, deep = fals
       // The wallet's own staked scan, thirty lines up, has always warned on
       // failure. Only the Sickle's did not, which is the half that matters most.
       let sickleStaked = [];
+      const sickleReport = {};
       try {
-        sickleStaked = await getStakedTokenIds(sickle, { extraTokens: [...extraTokens, ...sickleTokens], diag });
+        sickleStaked = await getStakedTokenIds(sickle, {
+          extraTokens: [...extraTokens, ...sickleTokens], diag, report: sickleReport,
+        });
       } catch (err) {
         trace('vfatStakedSearchError', String(err?.message || err).slice(0, 160));
         warnings.push('Positions staked through vfat could not be read, so any of those are missing from this total.');
+      }
+      // The catch above only fires if the whole search throws, and it does not
+      // throw: a gauge that fails is skipped inside. That is what actually
+      // emptied this wallet's liquidity, so the report is the part that matters.
+      if (sickleReport.gaugesFailed > 0) {
+        warnings.push(
+          `${sickleReport.gaugesFailed} of ${sickleReport.gaugesChecked} vfat gauges could not be read, `
+          + 'so a staked position may be missing from this total.',
+        );
       }
       mark('vfat.stakedIds');
       // One await per position, in a row, for positions that have nothing to do

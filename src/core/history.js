@@ -119,7 +119,7 @@ async function multicall(provider, calls, { chunk = 250, timeout = 20000 } = {})
  * @param {string[]} [opts.extraTokens] tokens seen elsewhere (wallet balances, known positions)
  * @returns {Promise<Array<{tokenId: string, poolAddress: string, gaugeAddress: string}>>}
  */
-export async function getStakedTokenIds(wallet, { extraTokens = [], diag = null } = {}) {
+export async function getStakedTokenIds(wallet, { extraTokens = [], diag = null, report = null } = {}) {
   const trace = (step, value) => { if (diag) diag.steps.push({ step, value }); };
   const voterAddr = VOTER_ADDRS['aerodrome']?.[CHAIN];
   if (!voterAddr) return [];
@@ -194,11 +194,24 @@ export async function getStakedTokenIds(wallet, { extraTokens = [], diag = null 
 
   // 3. gauge.stakedValues(wallet). Kept as individual calls: stakedValues returns a
   //    dynamic array, and decoding those through aggregate3 is where this breaks quietly.
+  let gaugesFailed = 0;
   const staked = await batchedRequests(
     gauges,
     async ({ pool, gauge, deployment }) => {
       const gc = new ethers.Contract(gauge, CL_GAUGE_ABI, provider);
-      const ids = await withTimeout(gc.stakedValues(wallet), 6000).catch(() => []);
+      // This used to be `.catch(() => [])`. A gauge that could not be asked
+      // contributed nothing and this function still returned normally, so a
+      // caller that wrapped the whole call in try/catch — as portfolio.js now
+      // does — would never see a thing. The position simply was not in the
+      // list, and its value simply was not in the total.
+      let ids;
+      try {
+        ids = await withTimeout(gc.stakedValues(wallet), 6000);
+      } catch (err) {
+        gaugesFailed += 1;
+        trace('stakedValuesFailed', { gauge, error: String(err?.message || err).slice(0, 120) });
+        return [];
+      }
       if (!Array.isArray(ids) || ids.length === 0) return [];
 
       // Ask the gauge which position manager holds its NFTs instead of assuming.
@@ -220,8 +233,20 @@ export async function getStakedTokenIds(wallet, { extraTokens = [], diag = null 
     50
   );
 
+  const rejected = staked.filter((r) => r.status === 'rejected').length;
   const found = staked.filter((r) => r.status === 'fulfilled').flatMap((r) => r.value);
   trace('stakedValuesHits', found.length);
+
+  // How much of the search actually happened. Without this the caller cannot
+  // tell "this wallet has nothing staked" from "we could not ask", and those
+  // two produce the same empty array and very different totals.
+  if (report) {
+    report.gaugesChecked = gauges.length;
+    report.gaugesFailed = gaugesFailed + rejected;
+  }
+  if (gaugesFailed + rejected > 0) {
+    trace('stakedGaugesUnread', gaugesFailed + rejected);
+  }
   return found;
 }
 
