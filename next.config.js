@@ -28,17 +28,47 @@ const REPORT_ONLY_CSP = [
 ].join('; ');
 
 /**
- * Enforced today, because none of it can break a wallet connection.
+ * Enforced today, because every line of it was measured first.
  *
- * `upgrade-insecure-requests` moved here from the report-only half after the
- * browser said, in as many words, that it is ignored in a report-only policy.
- * It is safe to enforce: everything this app loads is already HTTPS, so it
- * upgrades nothing and forbids nothing that works today.
+ * Walking six screens with the report-only policy on — home, Holdings, Earn,
+ * Pools, Ask, Simulate, Explore — produced violations in exactly two
+ * directives: img-src, for token logos, and connect-src. Everything listed
+ * here reported NOTHING on any screen, which is the only reason it is safe to
+ * close. See SECURITY.md section 10 for the evidence.
+ *
+ * Deliberately absent, and each for its own reason:
+ *
+ *   connect-src and default-src — default-src is the fallback for connect-src,
+ *   so enforcing it enforces that too. The four origins the app needs are
+ *   known, but the wallet CONNECTION flow and the app inside Base App were not
+ *   exercised, and either could need a fifth. Closing this on a list that is
+ *   probably complete is how you find out it was not, from a user who cannot
+ *   connect their wallet. It stays report-only until someone connects one.
+ *
+ *   script-src — needs a per-request nonce, because the browser's own hashes
+ *   differ from page to page. That is middleware, and middleware that fails to
+ *   put the nonce on one inline script produces a blank page. It is insurance
+ *   against an XSS this app has no route to today: the only three places that
+ *   write raw HTML all render our own markdown, and attacker-controlled text
+ *   (token symbols, which Morpho makes permissionless) is escaped by React and
+ *   clamped by safeSymbol before that.
+ *
+ * `upgrade-insecure-requests` sits here after the browser said outright that it
+ * is ignored in a report-only policy.
  */
 const ENFORCED_CSP = [
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
+  // Token logos come from DeFiLlama's icon host. 196 of the violations on that
+  // six-screen walk were this one host and nothing else.
+  "img-src 'self' data: https://token-icons.llamao.fi",
+  "font-src 'self' data:",
+  "frame-src 'self'",
+  "worker-src 'self' blob:",
+  // Next.js ships inline style attributes and there is no version of this app
+  // without them. Saying so is better than a directive that pretends otherwise.
+  "style-src 'self' 'unsafe-inline'",
   'upgrade-insecure-requests',
 ].join('; ');
 
