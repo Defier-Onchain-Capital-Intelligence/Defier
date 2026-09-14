@@ -101,6 +101,92 @@ export function redactRpcUrl(url) {
  */
 const PROVIDER_TTL_MS = 5 * 60 * 1000;
 
+/**
+ * How long one endpoint gets to answer a probe.
+ *
+ * Measured against the four public Base RPCs: eth_blockNumber came back in 337
+ * to 584 ms. Three seconds is five times the slowest honest answer, and the
+ * point of a probe is to find out quickly, not to wait politely.
+ */
+const PROBE_TIMEOUT_MS = 3000;
+
+/**
+ * How long the whole probe may hold up a request.
+ *
+ * `Promise.allSettled` waits for every endpoint, including the dead one, so a
+ * single unreachable RPC cost the full timeout on every probe. That was
+ * tolerable when the verdict was cached forever and it stopped being tolerable
+ * the moment the cache got a five minute expiry: the penalty went from once
+ * per instance to once every five minutes, on a request somebody was waiting
+ * for. Measured in production with 1rpc.io down.
+ *
+ * So the probe stops waiting as soon as it has something usable. The
+ * stragglers are not abandoned — they finish in the background and correct the
+ * health record, which is where the answer to "which endpoint is down" lives.
+ */
+const PROBE_GRACE_MS = 1500;
+const PROBE_MIN_HEALTHY = 2;
+
+/**
+ * Probe a list of endpoints without waiting for the slowest to give up.
+ *
+ * Resolves early once PROBE_MIN_HEALTHY have answered and the grace has
+ * passed, or when everything has settled, whichever comes first. `onFinal` is
+ * called later with the complete result, always.
+ *
+ * @returns {Promise<Array<{url: string, provider: object|null, error: string|null}>>}
+ */
+async function probeUrls(urls, onFinal) {
+  const done = [];
+  const probes = urls.map(async (url) => {
+    const provider = new ethers.providers.JsonRpcProvider({ url, timeout: PROBE_TIMEOUT_MS + 2000 });
+    let result;
+    try {
+      const block = await withTimeout(provider.getBlockNumber(), PROBE_TIMEOUT_MS);
+      if (!block || typeof block !== 'number' || block < 1) throw new Error(`invalid block ${block}`);
+      result = { url, provider, error: null };
+    } catch (err) {
+      result = { url, provider: null, error: String(err?.message || err).slice(0, 120) };
+    }
+    done.push(result);
+    return result;
+  });
+
+  const everything = Promise.all(probes);
+  // Never let the background completion reject on its own timetable.
+  everything.then((final) => { if (onFinal) onFinal(final); }, () => {});
+
+  const enough = new Promise((resolve) => {
+    const started = Date.now();
+    const preferred = urls[0];
+    const tick = () => {
+      const healthy = done.filter((r) => r.provider).length;
+      // The list is in preference order and the first entry is there for a
+      // reason — it is Alchemy, and it is the only endpoint that will serve a
+      // wide eth_getLogs range. Resolving before it has answered would quietly
+      // demote every log scan to 10,000-block chunks. So it gets to settle,
+      // one way or the other, before an early finish is allowed.
+      const preferredSettled = done.some((r) => r.url === preferred);
+      if (preferredSettled && healthy >= 1 && Date.now() - started >= PROBE_GRACE_MS) {
+        return resolve('enough');
+      }
+      if (healthy >= PROBE_MIN_HEALTHY && Date.now() - started >= PROBE_TIMEOUT_MS) {
+        // The preferred endpoint is the slow one. Do not hold a request for it.
+        return resolve('enough-without-preferred');
+      }
+      if (done.length === urls.length) return resolve('all');
+      setTimeout(tick, 50);
+      return undefined;
+    };
+    tick();
+  });
+
+  await Promise.race([everything, enough]);
+  // Whatever has answered by now. At least one, unless every endpoint is down,
+  // in which case this waited for all of them and the caller says so.
+  return done.length ? [...done] : everything;
+}
+
 export async function getProvider(chain) {
   const fresh = _providerHealth[chain] && Date.now() - _providerHealth[chain].at < PROVIDER_TTL_MS;
   if (_providerCache[chain] && fresh) return _providerCache[chain];
@@ -111,41 +197,26 @@ export async function getProvider(chain) {
     throw new Error(`No RPC configured for chain: ${chain}`);
   }
 
-  const settled = await Promise.allSettled(
-    rpcs.map(async (url) => {
-      const p = new ethers.providers.JsonRpcProvider({ url, timeout: 10000 });
-      try {
-        const block = await withTimeout(p.getBlockNumber(), 6000);
-        if (!block || typeof block !== 'number' || block < 1) {
-          throw new Error(`invalid block ${block}`);
-        }
-        return p;
-      } catch (err) {
-        // The URL travels with the failure, redacted. Without it the health
-        // record cannot say WHICH endpoint is down, which is the only thing
-        // worth knowing when one of them is.
-        throw new Error(`${redactRpcUrl(url)}: ${String(err?.message || err).slice(0, 120)}`);
-      }
-    })
-  );
-
-  const working = settled
-    .filter((r) => r.status === 'fulfilled')
-    .map((r) => r.value);
-
-  _providerHealth[chain] = {
-    at: Date.now(),
-    healthy: working.map((p) => redactRpcUrl(p.connection?.url || '')),
-    failed: settled
-      .filter((r) => r.status === 'rejected')
-      .map((r) => {
-        const message = String(r.reason?.message || r.reason);
-        const at = message.indexOf(': ');
-        return at > 0
-          ? { url: message.slice(0, at), error: message.slice(at + 2) }
-          : { url: 'unknown', error: message.slice(0, 120) };
-      }),
+  // The health record is written twice on purpose: once from whatever answered
+  // in time, and again when the stragglers finish. The second write is what
+  // names a dead endpoint, and it costs nobody a millisecond of waiting.
+  const record = (results) => {
+    _providerHealth[chain] = {
+      at: Date.now(),
+      healthy: results.filter((r) => r.provider).map((r) => redactRpcUrl(r.url)),
+      failed: results.filter((r) => !r.provider).map((r) => ({ url: redactRpcUrl(r.url), error: r.error })),
+      partial: results.length < rpcs.length,
+    };
   };
+
+  const settled = await probeUrls(rpcs, (final) => {
+    // Only correct the record if it still belongs to this probe: a later probe
+    // must not be overwritten by an earlier one's leftovers.
+    if (_providerHealth[chain]?.partial) record(final);
+  });
+  record(settled);
+
+  const working = settled.filter((r) => r.provider).map((r) => r.provider);
 
   if (working.length === 0) {
     throw new Error(`No working RPC for chain: ${chain}`);
@@ -212,22 +283,16 @@ export async function getLogsProvider(chain) {
     ...(LOGS_URLS[chain] || []),
   ];
 
-  const results = await Promise.allSettled(
-    urls.map(async (url) => {
-      const p = new ethers.providers.JsonRpcProvider({ url, timeout: 12000 });
-      const block = await withTimeout(p.getBlockNumber(), 5000);
-      if (!block || block < 1) throw new Error('bad block');
-      return { provider: p, url, block };
-    })
-  );
+  // Same early resolve as getProvider: this runs on every build, and waiting
+  // for a dead endpoint to time out is time somebody spends looking at a
+  // spinner. Preference order is still honoured among whatever answered.
+  const results = await probeUrls(urls);
 
   for (const url of urls) {
-    const match = results.find(
-      (r) => r.status === 'fulfilled' && r.value.url === url
-    );
+    const match = results.find((r) => r.url === url && r.provider);
     if (match) {
-      _logsProviderCache[chain] = match.value.provider;
-      return match.value.provider;
+      _logsProviderCache[chain] = match.provider;
+      return match.provider;
     }
   }
 
