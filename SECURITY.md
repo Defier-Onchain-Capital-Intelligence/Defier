@@ -167,16 +167,38 @@ guardarla, que un tercero reciba un identificador persistente del navegador en
 cada carga es una contradicción. Vale la pena cerrarla; vale más cerrarla
 probada.
 
-**Orígenes que la app necesita de verdad** (observados, no supuestos):
-
-| origen | quién | para qué |
-|---|---|---|
-| `api.developer.coinbase.com` | OnchainKit | RPC de Base |
-| `ethereum.reth.rs` | wagmi | mainnet, probablemente ENS |
-| `cca-lite.coinbase.com` | wallet SDK | telemetría (ver arriba) |
-
-**`script-src`**: doce scripts inline, todos de la hidratación de Next.js. Cerrar
-esa directiva exige nonces, no `'unsafe-inline'`.
-
 **`upgrade-insecure-requests`**: el navegador avisó que se ignora en una política
 report-only. Movida a la mitad aplicada, donde no prohíbe nada que hoy funcione.
+
+### Evidencia recogida · 14 sep 2026
+
+Recorridas seis pantallas con la política puesta — inicio, Holdings, Earn,
+Pools, Ask, Simulate, Explore — leyendo lo que el navegador reportó. Esto es lo
+que la app necesita **de verdad**, observado, no supuesto:
+
+| directiva | qué hay que añadir | quién lo pide |
+|---|---|---|
+| `img-src` | `https://token-icons.llamao.fi` | logos de tokens (196 violaciones, con diferencia lo más frecuente) |
+| `connect-src` | `https://api.developer.coinbase.com` | OnchainKit, RPC de Base |
+| `connect-src` | `https://ethereum.reth.rs` | wagmi contra mainnet, probablemente ENS |
+| `connect-src` | `https://cca-lite.coinbase.com` | telemetría del wallet SDK (ver arriba) |
+| `script-src` | un **nonce** | hidratación de Next.js |
+
+Y lo que **no** hace falta tocar, que es la mitad del valor de haber medido:
+`style-src` (el `'unsafe-inline'` que ya lleva es suficiente), `font-src`,
+`frame-src`, `worker-src` y `default-src` no reportaron nada en ninguna
+pantalla.
+
+**Los hashes no sirven para `script-src`.** El navegador ofrece un `sha256-…`
+por cada script inline, pero los valores **cambian de página a página** — parte
+son del bootstrap del framework y se repiten, y parte son del payload RSC de
+cada ruta. Una lista de hashes habría que regenerarla en cada build y en cada
+ruta nueva, y el día que alguien la olvide la página se queda en blanco. Tiene
+que ser un nonce por request, lo que implica un `middleware.ts`.
+
+**La mitad aplicada no bloquea nada.** Cero errores de consola en las seis
+pantallas, y ninguna violación de `object-src`, `base-uri` ni `form-action`.
+
+**Lo que esta pasada NO cubre**, y hay que medirlo antes de aplicar: el flujo de
+conexión de wallet (abrir el modal, conectar de verdad) y la app dentro de Base
+App. Ambos pueden pedir orígenes que aquí no aparecieron.
