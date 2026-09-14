@@ -1,6 +1,6 @@
 # Terms
 
-Last updated 11 September 2026.
+Last updated 14 September 2026.
 
 By using DeFier you agree to these terms. They are short because the product is
 narrow: it reads public blockchain data and shows you what it means.
@@ -54,6 +54,10 @@ something it is not.
 DeFier depends on blockchain nodes, price feeds, hosting and an AI provider.
 Those services have their own terms, and outages or errors on their side can
 affect what you see here.
+
+The Connect Wallet button is Coinbase's library. It reports its own usage to
+Coinbase when the page loads, independently of us and whether or not you
+connect. See the privacy page for what that includes.
 
 ## Availability
 

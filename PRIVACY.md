@@ -1,6 +1,6 @@
 # Privacy
 
-Last updated 11 September 2026.
+Last updated 14 September 2026.
 
 DeFier reads public data from the Base blockchain and shows you what it means.
 It holds no funds, no keys, and no accounts. This page says exactly what data
@@ -77,8 +77,21 @@ sees only what it needs to answer.
 | Anthropic | Your question and the computed figures | Answering in the Ask screen |
 | Supabase | The stored records listed above | Our database |
 | Vercel | Ordinary request data | Hosting |
-| Coinbase Developer Platform | Wallet connection data | The Connect Wallet button |
+| Coinbase | Wallet connection data, and its own usage telemetry — see below | The Connect Wallet button |
 | Farcaster and the Base App | Your account id, only if you enable alerts | Delivering notifications |
+
+### Coinbase's wallet library reports its own usage
+
+The Connect Wallet button is Coinbase's library, not ours, and it sends
+telemetry to Coinbase when the page loads — before you connect anything, and
+whether or not you ever do. It identifies a random id kept in your browser,
+which stays the same across visits. It does not include your wallet address.
+
+Turning it off means replacing the whole connection flow, which we are not
+going to do without testing it properly. Until then, you know it happens.
+Clearing this site's browser storage resets the id.
+
+The part of that library that reports usage on **our** behalf is switched off.
 
 ## A public blockchain is public
 
