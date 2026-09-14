@@ -117,3 +117,25 @@ registrarla sería una fuga peor que la que la política previene.
 
 **Ausentes a propósito**: `frame-ancestors` y `X-Frame-Options`. Esto es una
 Base Mini App y está hecha para correr dentro del iframe de otro cliente.
+
+## 9. CVE-2025-14505 en `elliptic` (14 avisos low, vía ethers v5)
+
+**No tiene parche.** El aviso dice literalmente *"Patched versions: None"*, así
+que `npm audit fix` no lo resuelve y forzarlo solo rompería ethers.
+
+**Por qué no nos aplica**: el fallo está en la GENERACIÓN de firmas ECDSA —
+`elliptic` calcula mal el largo en bytes de `k` cuando tiene ceros a la
+izquierda, y alguien que consiga una firma defectuosa y una correcta del mismo
+input podría derivar la clave privada. La verificación y la generación de
+claves no están afectadas.
+
+Esta app **nunca firma**. No instancia `ethers.Wallet`, no llama `signMessage`,
+`signTransaction` ni `_signTypedData`, no usa `useSendTransaction` ni
+`writeContract`, y no maneja claves privadas. Las firmas, cuando existen, las
+hace el wallet del usuario en su propio proceso.
+
+**Esto se verifica, no se asume**: `test/neverSigns.test.mjs` recorre todo
+`src/` y falla si aparece cualquiera de esas llamadas. Si algún día se añade
+firma a propósito, ese test se cae — y la respuesta correcta **no es borrarlo**,
+es volver a leer el aviso y decidir de nuevo, porque el único motivo por el que
+hoy no nos afecta es que no tocamos ese camino.
